@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# BarcoID runtime cache & logs
+.id_cache/
+.cache/
+*.cache
+*.log
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Packaging and distribution
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing and linting
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE and OS temporary files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Office and Excel lock files
+~$*.xlsx
+~$*.xls
+
+# Local environment secrets
+.env
+*.local
+
