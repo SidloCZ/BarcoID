@@ -7,6 +7,6 @@ __author__ = "Jakub Šidlík"
 
 from barcoid.config import BarcoIDConfig
 from barcoid.cache import CacheManager
+from barcoid.pipeline import BarcoIDPipeline
 
-__all__ = ["__version__", "BarcoIDConfig", "CacheManager"]
-
+__all__ = ["__version__", "BarcoIDConfig", "CacheManager", "BarcoIDPipeline"]
