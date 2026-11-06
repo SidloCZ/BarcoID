@@ -133,3 +133,4 @@ If you use BarcoID in academic research, please cite:
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+

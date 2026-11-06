@@ -9,3 +9,4 @@ from barcoid.config import BarcoIDConfig
 from barcoid.cache import CacheManager
 
 __all__ = ["__version__", "BarcoIDConfig", "CacheManager"]
+

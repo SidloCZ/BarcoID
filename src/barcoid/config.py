@@ -45,3 +45,4 @@ class BarcoIDConfig:
 
     # Morphospecies prefix mappings
     custom_prefix_map: Dict[str, str] = field(default_factory=dict)
+
