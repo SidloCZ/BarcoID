@@ -88,3 +88,4 @@ class ConcordanceEngine:
                 confidence = max_pident / 100.0
 
         return consensus_genus, consensus_species, status, round(confidence, 2)
+

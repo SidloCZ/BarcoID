@@ -58,3 +58,4 @@ class FastaParser:
             "mean_len": round(sum(lengths) / len(lengths), 1),
             "ambiguous_count": amb_count,
         }
+

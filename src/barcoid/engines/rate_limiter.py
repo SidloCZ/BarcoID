@@ -82,3 +82,4 @@ class PacingAdvisor:
                 f"Recommendation: Use local BLAST with --local-blast-db <path> or limit pilot testing with --max-sequences <N>."
             )
         return None
+

@@ -221,3 +221,4 @@ class BoldEngine:
             results[hdr] = res
             self.cache_manager.set_bold(seq, res)
         self.cache_manager.save()
+

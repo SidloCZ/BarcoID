@@ -49,3 +49,4 @@ class MetadataParser:
     def get_metadata(self, sample_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves external metadata dictionary for a given sample/voucher ID."""
         return self.records.get(sample_id.strip())
+

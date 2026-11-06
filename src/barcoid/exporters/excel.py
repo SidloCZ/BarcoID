@@ -165,3 +165,4 @@ class ExcelExporter:
                 ws.column_dimensions[col_letter].width = min(max(max_len + 3, 10), 45)
 
         wb.save(output_path)
+

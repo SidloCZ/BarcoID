@@ -158,3 +158,4 @@ class BarcoIDPipeline:
         logger.info(f"  - Markdown QC:  {report_path}")
 
         return rows
+

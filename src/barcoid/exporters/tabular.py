@@ -62,3 +62,4 @@ class TabularExporter:
                     "concordance_status": r.get("concordance_status", ""),
                     "qc_flag": r.get("qc_flag", ""),
                 })
+

@@ -167,3 +167,4 @@ class LocalBlastEngine:
             "top_bitscore": 0.0,
             "all_hits": [],
         }
+
