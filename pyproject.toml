@@ -1,0 +1,82 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "barcoid"
+version = "0.1.0.dev1"
+description = "Multi-Source DNA Barcode Taxonomic Identifier, Cross-Referencer & QC Auditor"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    { name = "Jakub Šidlík", email = "kubiksidlik@gmail.com" },
+]
+keywords = [
+    "dna-barcoding",
+    "coi",
+    "taxonomic-identification",
+    "bold-systems",
+    "ncbi-blast",
+    "gbif",
+    "quality-control",
+    "bioinformatics"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "biopython>=1.81",
+    "requests>=2.28.0",
+    "openpyxl>=3.1.0",
+    "urllib3>=2.0.0",
+]
+
+[project.optional-dependencies]
+cli = [
+    "rich>=13.0.0",
+]
+pandas = [
+    "pandas>=2.0.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.11.0",
+    "ruff>=0.4.0",
+]
+all = [
+    "barcoid[cli,pandas,dev]",
+]
+
+[project.scripts]
+barcoid = "barcoid.cli:main"
+barco-id = "barcoid.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/SidloCZ/BarcoID"
+Documentation = "https://github.com/SidloCZ/BarcoID#readme"
+Repository = "https://github.com/SidloCZ/BarcoID"
+Issues = "https://github.com/SidloCZ/BarcoID/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/barcoid"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

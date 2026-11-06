@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use BarcoID in your research, please cite it as below."
+authors:
+  - family-names: "Šidlík"
+    given-names: "Jakub"
+title: "BarcoID: Multi-Source DNA Barcode Taxonomic Identifier, Cross-Referencer & QC Auditor"
+version: 0.1.0-dev
+date-released: 2026-02-01
+url: "https://github.com/SidloCZ/BarcoID"
+license: MIT
+keywords:
+  - "dna-barcoding"
+  - "coi"
+  - "taxonomic-identification"
+  - "bold-systems"
+  - "ncbi-blast"
+  - "gbif"
+  - "quality-control"
+  - "bioinformatics"

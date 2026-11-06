@@ -1,0 +1,3 @@
+"""
+BarcoID test suite.
+"""
