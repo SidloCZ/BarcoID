@@ -1,9 +1,10 @@
 """
 Standalone Desktop GUI for BarcoID.
-Click-through 3-step wizard with native High-DPI text rendering, strict 2-color
-high-contrast palette (#111111 black on #FFFFFF white + #4C9E45 botanical green),
-concurrent 4-stream status tracking with live circular spinner animations, and a
-hidden Diagnostics / Bug Report terminal triggered via Ctrl+Shift+D.
+Click-through 4-step wizard with native High-DPI text rendering, maximized startup,
+responsive layouts for smaller window sizes, strict high-contrast palette (#111111 black
+on #FFFFFF white + #4C9E45 botanical green), concurrent 4-stream circular spinners,
+Step 4 Results table with single-cell highlighting on Concordance_Status and QC_Flag,
+and a hidden Diagnostics / Bug Report terminal triggered via Ctrl+Shift+D.
 """
 
 import ctypes
@@ -31,7 +32,8 @@ from barcoid.parsers.headers import DEFAULT_GENUS_PREFIXES
 from barcoid.parsers.metadata import MetadataParser
 from barcoid.pipeline import BarcoIDPipeline
 
-# Strict 2-Color High-Contrast Palette: Pure White (#FFFFFF) + Pure Black (#111111) + Green (#4C9E45)
+# Strict High-Contrast Palette: Pure White (#FFFFFF) + Pure Black (#111111) + Green (#4C9E45)
+# Plus subtle alert tint (#FDECEC) used exclusively for MISMATCH_ALERT / non-OK QC single cells.
 PALETTE = {
     "bg_canvas": "#FFFFFF",       # Pure white background
     "card_outer": "#FFFFFF",      # Pure white container
@@ -40,6 +42,7 @@ PALETTE = {
     "primary": "#4C9E45",         # Brand accent green
     "primary_hover": "#3B8235",   # Hover green
     "primary_tint": "#EAF4E9",    # Soft green tint (always paired with #111111 text)
+    "alert_tint": "#FDECEC",      # Soft alert cell highlight for MISMATCH_ALERT / QC flags
     "text_dark": "#111111",       # High-contrast black text everywhere on light surfaces
     "text_muted": "#111111",      # No gray text: secondary labels also use crisp #111111
 }
@@ -50,6 +53,45 @@ FONT_HEADING = ("Segoe UI", 11, "bold")
 FONT_BODY = ("Segoe UI", 11)
 
 SVG_ICON_PATH = Path(__file__).resolve().parent / "assets" / "logo_4streams.svg"
+
+RESULTS_COLUMNS = [
+    "Sample_ID",
+    "Field_Morpho",
+    "Field_Genus",
+    "BOLD_Taxon",
+    "BOLD_%",
+    "NCBI_Taxon",
+    "NCBI_%",
+    "GBIF_Name",
+    "Consensus_Species",
+    "Concordance_Status",
+    "QC_Flag",
+]
+
+
+def get_cell_highlight(col_name: str, value: str) -> Tuple[str, str, bool]:
+    """
+    Returns (bg_color, fg_color, is_bold) for a single cell in the Step 4 Results table.
+    Only Concordance_Status and QC_Flag cells are colored; all other cells remain #FFFFFF / #111111.
+    """
+    val = (value or "").strip()
+    if col_name == "Concordance_Status":
+        if val == "CONCORDANT":
+            return PALETTE["primary"], "#FFFFFF", True
+        if val == "NEW_ASSIGNMENT":
+            return PALETTE["primary_tint"], PALETTE["text_dark"], True
+        if val == "MISMATCH_ALERT":
+            return PALETTE["alert_tint"], PALETTE["text_dark"], True
+        return PALETTE["card_inner"], PALETTE["text_dark"], False
+
+    if col_name == "QC_Flag":
+        if val == "OK":
+            return PALETTE["primary"], "#FFFFFF", True
+        if val:
+            return PALETTE["alert_tint"], PALETTE["text_dark"], True
+        return PALETTE["card_inner"], PALETTE["text_dark"], False
+
+    return PALETTE["card_inner"], PALETTE["text_dark"], False
 
 
 def enable_high_dpi():
@@ -161,15 +203,16 @@ def open_path_in_os(target: Path):
 
 
 class BarcoIDApp:
-    """Main click-through desktop wizard for BarcoID."""
+    """Main click-through 4-step desktop wizard for BarcoID."""
 
     def __init__(self, root: tk.Tk):
         self.root = root
         self._apply_dpi_scaling()
         self.root.title(f"BarcoID v{__version__}")
-        self.root.geometry("1140x780")
-        self.root.minsize(920, 660)
+        self.root.geometry("1120x760")
+        self.root.minsize(760, 560)
         self.root.configure(bg=PALETTE["bg_canvas"])
+        self._maximize_window()
 
         # State variables
         self.current_step = 0
@@ -194,7 +237,7 @@ class BarcoIDApp:
         )
         self.run_overview_var = tk.StringVar(value="")
 
-        # Execution, Spinner Animation & Diagnostics state
+        # Execution, Spinner Animation, Results & Diagnostics state
         self.is_running = False
         self.spinner_angle = 0
         self.service_states: Dict[str, str] = {
@@ -203,6 +246,7 @@ class BarcoIDApp:
             "ncbi": "Idle",
             "gbif": "Idle",
         }
+        self.last_results_rows: List[Dict[str, Any]] = []
         self.last_excel_path: Optional[Path] = None
         self.last_error_trace: str = ""
         self.log_history: List[str] = []
@@ -218,6 +262,16 @@ class BarcoIDApp:
         self.show_step(0)
         self._poll_queues()
         self._animate_spinners()
+
+    def _maximize_window(self):
+        """Maximizes the application window on startup while keeping standard window controls."""
+        try:
+            if sys.platform.startswith("win"):
+                self.root.state("zoomed")
+            else:
+                self.root.attributes("-zoomed", True)
+        except Exception:
+            pass
 
     def _apply_dpi_scaling(self):
         """Synchronizes Tkinter's internal font/widget scaling factor with the monitor DPI."""
@@ -325,14 +379,14 @@ class BarcoIDApp:
         canvas.create_oval(37, 20.5, 44, 27.5, fill=PALETTE["primary"], outline="")
 
     def _build_layout(self):
-        # 1. Header Bar + Stepper Navigation (Clean: no visible debug buttons)
+        # 1. Header Bar + 4-Step Wizard Navigation
         top_bar = tk.Frame(
             self.root,
             bg=PALETTE["card_inner"],
             highlightbackground=PALETTE["border"],
             highlightthickness=1,
-            padx=24,
-            pady=12,
+            padx=20,
+            pady=10,
         )
         top_bar.pack(fill="x")
 
@@ -342,7 +396,7 @@ class BarcoIDApp:
         logo_canvas = tk.Canvas(
             brand_frame, width=48, height=48, bg=PALETTE["card_inner"], highlightthickness=0
         )
-        logo_canvas.pack(side="left", padx=(0, 12))
+        logo_canvas.pack(side="left", padx=(0, 10))
         self._draw_4streams_icon(logo_canvas)
 
         tk.Label(
@@ -353,7 +407,7 @@ class BarcoIDApp:
             bg=PALETTE["card_inner"],
         ).pack(side="left")
 
-        # Click-through Wizard Step Tabs on the right of the header
+        # Click-through Wizard Step Tabs (4 Steps)
         stepper_frame = tk.Frame(top_bar, bg=PALETTE["card_inner"])
         stepper_frame.pack(side="right")
 
@@ -361,7 +415,8 @@ class BarcoIDApp:
         step_titles = [
             "1. Sequences",
             "2. Metadata Column",
-            "3. Run & Results",
+            "3. Run",
+            "4. Results",
         ]
         for idx, title in enumerate(step_titles):
             btn = tk.Button(
@@ -371,21 +426,22 @@ class BarcoIDApp:
                 font=FONT_HEADING,
                 relief="solid",
                 bd=1,
-                padx=14,
+                padx=12,
                 pady=6,
                 cursor="hand2",
             )
-            btn.pack(side="left", padx=(8, 0))
+            btn.pack(side="left", padx=(6, 0))
             self.step_buttons.append(btn)
 
         # 2. Main Step Page Container
-        self.page_container = tk.Frame(self.root, bg=PALETTE["bg_canvas"], padx=24, pady=18)
+        self.page_container = tk.Frame(self.root, bg=PALETTE["bg_canvas"], padx=20, pady=16)
         self.page_container.pack(fill="both", expand=True)
 
         self.step_frames: List[tk.Frame] = []
         self._build_step1_sequences()
         self._build_step2_metadata()
         self._build_step3_run()
+        self._build_step4_results()
 
     # ------------------------------------------------------------------
     # STEP 1: SEQUENCES & PARAMETERS
@@ -396,8 +452,8 @@ class BarcoIDApp:
             bg=PALETTE["card_inner"],
             highlightbackground=PALETTE["border"],
             highlightthickness=1,
-            padx=32,
-            pady=28,
+            padx=28,
+            pady=24,
         )
         self.step_frames.append(page)
 
@@ -408,7 +464,7 @@ class BarcoIDApp:
             fg=PALETTE["text_dark"],
             bg=PALETTE["card_inner"],
             anchor="w",
-        ).pack(fill="x", pady=(0, 8))
+        ).pack(fill="x", pady=(0, 6))
 
         tk.Label(
             page,
@@ -417,7 +473,7 @@ class BarcoIDApp:
             fg=PALETTE["text_dark"],
             bg=PALETTE["card_inner"],
             anchor="w",
-        ).pack(fill="x", pady=(0, 24))
+        ).pack(fill="x", pady=(0, 20))
 
         form = tk.Frame(page, bg=PALETTE["card_inner"])
         form.pack(fill="x")
@@ -427,54 +483,54 @@ class BarcoIDApp:
         tk.Label(
             form, text="Input FASTA File:", font=FONT_HEADING,
             fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
-        ).grid(row=0, column=0, sticky="w", padx=(0, 16), pady=10)
+        ).grid(row=0, column=0, sticky="w", padx=(0, 14), pady=8)
 
         tk.Entry(
             form, textvariable=self.fasta_var, font=FONT_BODY,
             bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], relief="solid", bd=1
-        ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=10, ipady=6)
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=8, ipady=6)
 
         self._make_button(form, "Browse FASTA", self.browse_fasta, primary=True).grid(
-            row=0, column=2, sticky="ew", pady=10
+            row=0, column=2, sticky="ew", pady=8
         )
 
         # Output Folder
         tk.Label(
             form, text="Output Folder:", font=FONT_HEADING,
             fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
-        ).grid(row=1, column=0, sticky="w", padx=(0, 16), pady=10)
+        ).grid(row=1, column=0, sticky="w", padx=(0, 14), pady=8)
 
         tk.Entry(
             form, textvariable=self.output_dir_var, font=FONT_BODY,
             bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], relief="solid", bd=1
-        ).grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=10, ipady=6)
+        ).grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=8, ipady=6)
 
         self._make_button(form, "Browse Folder", self.browse_output_dir, primary=False).grid(
-            row=1, column=2, sticky="ew", pady=10
+            row=1, column=2, sticky="ew", pady=8
         )
 
         # Target Taxon
         tk.Label(
             form, text="Target Taxon Filter:", font=FONT_HEADING,
             fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
-        ).grid(row=2, column=0, sticky="w", padx=(0, 16), pady=10)
+        ).grid(row=2, column=0, sticky="w", padx=(0, 14), pady=8)
 
         taxon_row = tk.Frame(form, bg=PALETTE["card_inner"])
-        taxon_row.grid(row=2, column=1, columnspan=2, sticky="w", pady=10)
+        taxon_row.grid(row=2, column=1, columnspan=2, sticky="ew", pady=8)
 
         taxon_combo = ttk.Combobox(
             taxon_row,
             textvariable=self.taxon_var,
             values=["Formicidae", "Hymenoptera", "Insecta", "Arthropoda", "Animalia", "Fungi", "Plantae"],
-            width=22,
+            width=20,
             font=FONT_BODY,
         )
-        taxon_combo.pack(side="left", padx=(0, 24))
+        taxon_combo.pack(side="left", padx=(0, 20))
 
         tk.Label(
             taxon_row, text="Max Sequences (optional):", font=FONT_HEADING,
             fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 8))
 
         tk.Entry(
             taxon_row, textvariable=self.max_seq_var, width=10, font=FONT_BODY,
@@ -483,13 +539,13 @@ class BarcoIDApp:
 
         # Checkboxes
         flags_row = tk.Frame(form, bg=PALETTE["card_inner"])
-        flags_row.grid(row=3, column=1, columnspan=2, sticky="w", pady=10)
+        flags_row.grid(row=3, column=1, columnspan=2, sticky="w", pady=8)
 
         tk.Checkbutton(
             flags_row, text="Dry Run (inspect cache only)", variable=self.dry_run_var,
             bg=PALETTE["card_inner"], fg=PALETTE["text_dark"],
             activebackground=PALETTE["card_inner"], selectcolor=PALETTE["card_inner"], font=FONT_BODY
-        ).pack(side="left", padx=(0, 24))
+        ).pack(side="left", padx=(0, 20))
 
         tk.Checkbutton(
             flags_row, text="Force Refresh (bypass disk cache)", variable=self.force_refresh_var,
@@ -499,14 +555,14 @@ class BarcoIDApp:
 
         # Footer Navigation
         footer1 = tk.Frame(page, bg=PALETTE["card_inner"])
-        footer1.pack(side="bottom", fill="x", pady=(20, 0))
+        footer1.pack(side="bottom", fill="x", pady=(16, 0))
 
         self._make_button(
-            footer1, "Next: Metadata Column Picker ->", lambda: self.show_step(1), primary=True
+            footer1, "Next: Metadata Column ->", lambda: self.show_step(1), primary=True
         ).pack(side="right")
 
     # ------------------------------------------------------------------
-    # STEP 2: INTERACTIVE METADATA VIEWER & COLUMN PICKER
+    # STEP 2: INTERACTIVE METADATA VIEWER & COLUMN PICKER (Responsive 2-Row Toolbar)
     # ------------------------------------------------------------------
     def _build_step2_metadata(self):
         page = tk.Frame(
@@ -514,8 +570,8 @@ class BarcoIDApp:
             bg=PALETTE["card_inner"],
             highlightbackground=PALETTE["border"],
             highlightthickness=1,
-            padx=32,
-            pady=24,
+            padx=28,
+            pady=20,
         )
         self.step_frames.append(page)
 
@@ -526,50 +582,76 @@ class BarcoIDApp:
             fg=PALETTE["text_dark"],
             bg=PALETTE["card_inner"],
             anchor="w",
-        ).pack(fill="x", pady=(0, 12))
+        ).pack(fill="x", pady=(0, 10))
 
-        meta_bar = tk.Frame(page, bg=PALETTE["card_inner"])
-        meta_bar.pack(fill="x", pady=(0, 12))
-
-        self._make_button(
-            meta_bar, "Choose Metadata File (.csv / .tsv / .xlsx)", self.browse_metadata, primary=True
-        ).pack(side="left", padx=(0, 10))
+        # Row 1 of Toolbar: File picker buttons on left, Header click mode on right
+        top_controls = tk.Frame(page, bg=PALETTE["card_inner"])
+        top_controls.pack(fill="x", pady=(0, 8))
 
         self._make_button(
-            meta_bar, "Clear Metadata", self.clear_metadata, primary=False
-        ).pack(side="left", padx=(0, 20))
-
-        tk.Label(
-            meta_bar, text="Morphospecies Column:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            top_controls, "Choose Metadata File (.csv / .tsv / .xlsx)", self.browse_metadata, primary=True
         ).pack(side="left", padx=(0, 8))
 
+        self._make_button(
+            top_controls, "Clear Metadata", self.clear_metadata, primary=False
+        ).pack(side="left")
+
+        mode_box = tk.Frame(top_controls, bg=PALETTE["card_inner"])
+        mode_box.pack(side="right")
+        tk.Label(
+            mode_box, text="Header Click Sets:", font=FONT_HEADING,
+            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+        ).pack(side="left", padx=(0, 6))
+        tk.Radiobutton(
+            mode_box, text="Morphospecies", variable=self.click_target_var, value="morpho",
+            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], selectcolor=PALETTE["card_inner"],
+            activebackground=PALETTE["card_inner"], font=FONT_BODY
+        ).pack(side="left", padx=(0, 6))
+        tk.Radiobutton(
+            mode_box, text="Sample ID", variable=self.click_target_var, value="sample",
+            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], selectcolor=PALETTE["card_inner"],
+            activebackground=PALETTE["card_inner"], font=FONT_BODY
+        ).pack(side="left")
+
+        # Row 2 of Toolbar: Elastic 4-Column Grid for Morphospecies Column & Sample ID Column
+        # Ensures both dropdowns are ALWAYS visible and resize proportionally in smaller windows.
+        col_selectors = tk.Frame(page, bg=PALETTE["card_inner"])
+        col_selectors.pack(fill="x", pady=(0, 10))
+        col_selectors.columnconfigure(1, weight=1)
+        col_selectors.columnconfigure(3, weight=1)
+
+        tk.Label(
+            col_selectors, text="Morphospecies Column:", font=FONT_HEADING,
+            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
+
         self.morpho_combo = ttk.Combobox(
-            meta_bar, textvariable=self.morpho_col_var, state="readonly", width=20, font=FONT_BODY
+            col_selectors, textvariable=self.morpho_col_var, state="readonly", font=FONT_BODY
         )
-        self.morpho_combo.pack(side="left", padx=(0, 18))
+        self.morpho_combo.grid(row=0, column=1, sticky="ew", padx=(0, 20), pady=2)
         self.morpho_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_column_badges())
 
         tk.Label(
-            meta_bar, text="Sample ID Column:", font=FONT_HEADING,
+            col_selectors, text="Sample ID Column:", font=FONT_HEADING,
             fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
-        ).pack(side="left", padx=(0, 8))
+        ).grid(row=0, column=2, sticky="w", padx=(0, 8), pady=2)
 
         self.sample_combo = ttk.Combobox(
-            meta_bar, textvariable=self.sample_col_var, state="readonly", width=18, font=FONT_BODY
+            col_selectors, textvariable=self.sample_col_var, state="readonly", font=FONT_BODY
         )
-        self.sample_combo.pack(side="left")
+        self.sample_combo.grid(row=0, column=3, sticky="ew", pady=2)
         self.sample_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_column_badges())
 
+        # Live Preview Banner
         sub_bar = tk.Frame(
             page,
             bg=PALETTE["primary_tint"],
             highlightbackground=PALETTE["primary"],
             highlightthickness=1,
-            padx=14,
-            pady=8,
+            padx=12,
+            pady=6,
         )
-        sub_bar.pack(fill="x", pady=(0, 12))
+        sub_bar.pack(fill="x", pady=(0, 10))
 
         tk.Label(
             sub_bar,
@@ -578,36 +660,21 @@ class BarcoIDApp:
             fg=PALETTE["text_dark"],
             bg=PALETTE["primary_tint"],
             anchor="w",
-        ).pack(side="left", fill="x", expand=True)
+        ).pack(fill="x")
 
-        mode_box = tk.Frame(sub_bar, bg=PALETTE["primary_tint"])
-        mode_box.pack(side="right")
-        tk.Label(
-            mode_box, text="Clicking column header sets:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["primary_tint"]
-        ).pack(side="left", padx=(0, 8))
-        tk.Radiobutton(
-            mode_box, text="Morphospecies", variable=self.click_target_var, value="morpho",
-            bg=PALETTE["primary_tint"], fg=PALETTE["text_dark"], selectcolor=PALETTE["card_inner"],
-            activebackground=PALETTE["primary_tint"], font=FONT_BODY
-        ).pack(side="left", padx=(0, 8))
-        tk.Radiobutton(
-            mode_box, text="Sample ID", variable=self.click_target_var, value="sample",
-            bg=PALETTE["primary_tint"], fg=PALETTE["text_dark"], selectcolor=PALETTE["card_inner"],
-            activebackground=PALETTE["primary_tint"], font=FONT_BODY
-        ).pack(side="left")
-
+        # Footer Navigation
         footer2 = tk.Frame(page, bg=PALETTE["card_inner"])
-        footer2.pack(side="bottom", fill="x", pady=(14, 0))
+        footer2.pack(side="bottom", fill="x", pady=(12, 0))
 
         self._make_button(
             footer2, "<- Back: Sequences", lambda: self.show_step(0), primary=False
         ).pack(side="left")
 
         self._make_button(
-            footer2, "Next: Run & Results ->", lambda: self.show_step(2), primary=True
+            footer2, "Next: Run ->", lambda: self.show_step(2), primary=True
         ).pack(side="right")
 
+        # Interactive Spreadsheet Preview Table
         table_wrap = tk.Frame(
             page, bg=PALETTE["card_inner"], highlightbackground=PALETTE["border"], highlightthickness=1
         )
@@ -625,7 +692,7 @@ class BarcoIDApp:
         table_wrap.columnconfigure(0, weight=1)
 
     # ------------------------------------------------------------------
-    # STEP 3: RUN & RESULTS (with circular spinner animations on cards)
+    # STEP 3: RUN (Dedicated Execution Page with 2x2 Responsive Stream Cards)
     # ------------------------------------------------------------------
     def _build_step3_run(self):
         page = tk.Frame(
@@ -633,14 +700,14 @@ class BarcoIDApp:
             bg=PALETTE["card_inner"],
             highlightbackground=PALETTE["border"],
             highlightthickness=1,
-            padx=32,
-            pady=24,
+            padx=28,
+            pady=20,
         )
         self.step_frames.append(page)
 
         tk.Label(
             page,
-            text="Step 3: Parallel Four-Stream Resolution & Audit Results",
+            text="Step 3: Run Parallel Four-Stream Identification",
             font=FONT_TITLE,
             fg=PALETTE["text_dark"],
             bg=PALETTE["card_inner"],
@@ -654,33 +721,41 @@ class BarcoIDApp:
             fg=PALETTE["text_dark"],
             bg=PALETTE["card_inner"],
             anchor="w",
-        ).pack(fill="x", pady=(0, 14))
+        ).pack(fill="x", pady=(0, 12))
 
-        # 4 Evidence Stream Cards with embedded Circular Spinner Canvas
-        srv_row = tk.Frame(page, bg=PALETTE["card_inner"])
-        srv_row.pack(fill="x", pady=(0, 16))
+        # 4 Evidence Stream Cards in a Responsive 2x2 Grid (never overflows in smaller windows)
+        srv_grid = tk.Frame(page, bg=PALETTE["card_inner"])
+        srv_grid.pack(fill="x", pady=(0, 14))
+        srv_grid.columnconfigure(0, weight=1)
+        srv_grid.columnconfigure(1, weight=1)
+
         self.service_cards: Dict[str, tk.Frame] = {}
         self.service_titles: Dict[str, tk.Label] = {}
         self.service_labels: Dict[str, tk.Label] = {}
         self.service_spinners: Dict[str, tk.Canvas] = {}
 
         streams = [
-            ("morpho", "1. Morphological Prior"),
-            ("bold", "2. BOLD Systems v5"),
-            ("ncbi", "3. NCBI GenBank BLAST"),
-            ("gbif", "4. GBIF Backbone"),
+            ("morpho", "1. Morphological Prior", 0, 0),
+            ("bold", "2. BOLD Systems v5", 0, 1),
+            ("ncbi", "3. NCBI GenBank BLAST", 1, 0),
+            ("gbif", "4. GBIF Backbone", 1, 1),
         ]
-        for idx, (key, title) in enumerate(streams):
-            srv_row.columnconfigure(idx, weight=1)
+        for key, title, r_idx, c_idx in streams:
             card = tk.Frame(
-                srv_row,
+                srv_grid,
                 bg=PALETTE["card_inner"],
                 highlightbackground=PALETTE["border"],
                 highlightthickness=1,
-                padx=12,
+                padx=14,
                 pady=10,
             )
-            card.grid(row=0, column=idx, sticky="ew", padx=(0 if idx == 0 else 10, 0))
+            card.grid(
+                row=r_idx,
+                column=c_idx,
+                sticky="ew",
+                padx=(0 if c_idx == 0 else 10, 0),
+                pady=(0 if r_idx == 0 else 8, 0),
+            )
             t_lbl = tk.Label(
                 card, text=title, font=FONT_HEADING, fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
             )
@@ -701,24 +776,14 @@ class BarcoIDApp:
             self.service_labels[key] = s_lbl
             self.service_spinners[key] = spin_canvas
 
-        # Action Controls + Progress Bar
+        # Run Button + Progress Bar
         ctrl_row = tk.Frame(page, bg=PALETTE["card_inner"])
-        ctrl_row.pack(fill="x", pady=(0, 14))
+        ctrl_row.pack(fill="x", pady=(0, 12))
 
         self.run_btn = self._make_button(
             ctrl_row, "Run Identification", self.start_run, primary=True
         )
-        self.run_btn.pack(side="left", padx=(0, 10))
-
-        self.open_excel_btn = self._make_button(
-            ctrl_row, "Open Excel Report", self.open_last_excel, primary=False
-        )
-        self.open_excel_btn.pack(side="left", padx=(0, 10))
-
-        self.open_folder_btn = self._make_button(
-            ctrl_row, "Open Results Folder", self.open_output_folder, primary=False
-        )
-        self.open_folder_btn.pack(side="left", padx=(0, 18))
+        self.run_btn.pack(side="left", padx=(0, 16))
 
         prog_wrap = tk.Frame(ctrl_row, bg=PALETTE["card_inner"])
         prog_wrap.pack(side="left", fill="x", expand=True)
@@ -735,30 +800,18 @@ class BarcoIDApp:
         )
         self.progress_bar.pack(fill="x", pady=(6, 0))
 
-        # Concordance Summary Banner
-        self.summary_var = tk.StringVar(
-            value="Concordance Summary:   Total: 0   |   CONCORDANT: 0   |   NEW_ASSIGNMENT: 0   |   MISMATCH_ALERT: 0   |   NO_MATCH: 0"
-        )
-        tk.Label(
-            page,
-            textvariable=self.summary_var,
-            font=FONT_HEADING,
-            fg=PALETTE["text_dark"],
-            bg=PALETTE["primary_tint"],
-            highlightbackground=PALETTE["primary"],
-            highlightthickness=1,
-            padx=14,
-            pady=10,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 12))
-
         # Footer Navigation
         footer3 = tk.Frame(page, bg=PALETTE["card_inner"])
-        footer3.pack(side="bottom", fill="x", pady=(14, 0))
+        footer3.pack(side="bottom", fill="x", pady=(12, 0))
 
         self._make_button(
-            footer3, "<- Back: Metadata Column Picker", lambda: self.show_step(1), primary=False
+            footer3, "<- Back: Metadata Column", lambda: self.show_step(1), primary=False
         ).pack(side="left")
+
+        self.to_results_btn = self._make_button(
+            footer3, "Next: Results ->", lambda: self.show_step(3), primary=True
+        )
+        self.to_results_btn.pack(side="right")
 
         # Live Log Console
         self.log_text = tk.Text(
@@ -775,6 +828,202 @@ class BarcoIDApp:
         self.log_text.pack(fill="both", expand=True)
 
     # ------------------------------------------------------------------
+    # STEP 4: RESULTS (Table Viewer with Single-Cell Highlighting)
+    # ------------------------------------------------------------------
+    def _build_step4_results(self):
+        page = tk.Frame(
+            self.page_container,
+            bg=PALETTE["card_inner"],
+            highlightbackground=PALETTE["border"],
+            highlightthickness=1,
+            padx=28,
+            pady=20,
+        )
+        self.step_frames.append(page)
+
+        tk.Label(
+            page,
+            text="Step 4: Taxonomic Concordance & QC Results",
+            font=FONT_TITLE,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+            anchor="w",
+        ).pack(fill="x", pady=(0, 10))
+
+        # Top Action & Summary Bar
+        res_bar = tk.Frame(page, bg=PALETTE["card_inner"])
+        res_bar.pack(fill="x", pady=(0, 10))
+
+        self.open_excel_btn = self._make_button(
+            res_bar, "Open Excel Report", self.open_last_excel, primary=True
+        )
+        self.open_excel_btn.pack(side="left", padx=(0, 10))
+
+        self.open_folder_btn = self._make_button(
+            res_bar, "Open Results Folder", self.open_output_folder, primary=False
+        )
+        self.open_folder_btn.pack(side="left")
+
+        # Concordance Summary Banner
+        self.summary_var = tk.StringVar(
+            value="Concordance Summary:   Total: 0   |   CONCORDANT: 0   |   NEW_ASSIGNMENT: 0   |   MISMATCH_ALERT: 0   |   NO_MATCH: 0"
+        )
+        tk.Label(
+            page,
+            textvariable=self.summary_var,
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["primary_tint"],
+            highlightbackground=PALETTE["primary"],
+            highlightthickness=1,
+            padx=12,
+            pady=8,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 10))
+
+        # Footer Navigation
+        footer4 = tk.Frame(page, bg=PALETTE["card_inner"])
+        footer4.pack(side="bottom", fill="x", pady=(12, 0))
+
+        self._make_button(
+            footer4, "<- Back: Run", lambda: self.show_step(2), primary=False
+        ).pack(side="left")
+
+        # Scrollable Canvas Grid for Single-Cell Highlighted Results Table
+        grid_wrap = tk.Frame(
+            page, bg=PALETTE["card_inner"], highlightbackground=PALETTE["border"], highlightthickness=1
+        )
+        grid_wrap.pack(fill="both", expand=True)
+
+        self.results_canvas = tk.Canvas(
+            grid_wrap, bg=PALETTE["card_inner"], highlightthickness=0
+        )
+        res_vsb = ttk.Scrollbar(grid_wrap, orient="vertical", command=self.results_canvas.yview)
+        res_hsb = ttk.Scrollbar(grid_wrap, orient="horizontal", command=self.results_canvas.xview)
+        self.results_canvas.configure(yscrollcommand=res_vsb.set, xscrollcommand=res_hsb.set)
+
+        self.results_canvas.grid(row=0, column=0, sticky="nsew")
+        res_vsb.grid(row=0, column=1, sticky="ns")
+        res_hsb.grid(row=1, column=0, sticky="ew")
+        grid_wrap.rowconfigure(0, weight=1)
+        grid_wrap.columnconfigure(0, weight=1)
+
+        # Mousewheel support on the results table canvas
+        self.results_canvas.bind(
+            "<MouseWheel>",
+            lambda e: self.results_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
+        )
+
+        self.populate_results_table([])
+
+    def populate_results_table(self, rows: List[Dict[str, Any]]):
+        """
+        Renders the identification results table onto `self.results_canvas` with
+        individual cell highlighting on `Concordance_Status` and `QC_Flag`.
+        """
+        self.last_results_rows = list(rows)
+        c = self.results_canvas
+        c.delete("all")
+
+        row_h = max(34, int(34 * self.dpi_scale))
+        base_widths = [
+            190,  # Sample_ID
+            120,  # Field_Morpho
+            130,  # Field_Genus
+            165,  # BOLD_Taxon
+            85,   # BOLD_%
+            165,  # NCBI_Taxon
+            85,   # NCBI_%
+            165,  # GBIF_Name
+            175,  # Consensus_Species
+            165,  # Concordance_Status
+            180,  # QC_Flag
+        ]
+        col_widths = [max(w, int(w * self.dpi_scale)) for w in base_widths]
+
+        # 1. Draw Header Row
+        x_offset = 0
+        for col_idx, col_name in enumerate(RESULTS_COLUMNS):
+            w = col_widths[col_idx]
+            c.create_rectangle(
+                x_offset, 0, x_offset + w, row_h,
+                fill=PALETTE["primary_tint"], outline=PALETTE["border"], width=1
+            )
+            c.create_text(
+                x_offset + 10,
+                row_h // 2,
+                text=col_name,
+                anchor="w",
+                fill=PALETTE["text_dark"],
+                font=FONT_HEADING,
+            )
+            x_offset += w
+
+        total_w = x_offset
+
+        if not rows:
+            c.create_text(
+                20,
+                row_h + 28,
+                text="No results yet — Run Identification in Step 3 to view the concordance table here.",
+                anchor="w",
+                fill=PALETTE["text_dark"],
+                font=FONT_BODY,
+            )
+            c.configure(scrollregion=(0, 0, total_w, row_h * 3))
+            return
+
+        # 2. Draw Data Rows (with single-cell highlighting on Concordance_Status & QC_Flag)
+        for r_idx, r in enumerate(rows):
+            y0 = (r_idx + 1) * row_h
+            y1 = y0 + row_h
+
+            meta = r.get("meta", {})
+            bold = r.get("bold", {})
+            ncbi = r.get("ncbi", {})
+            gbif = r.get("gbif", {})
+
+            bold_pct = bold.get("top_pct_identity", 0.0)
+            ncbi_pct = ncbi.get("top_pct_identity", 0.0)
+
+            cell_values = [
+                str(meta.get("sample_id", "")),
+                str(meta.get("field_morpho_code", "")),
+                str(meta.get("field_inferred_genus", "")),
+                str(bold.get("top_species") or bold.get("top_genus") or ""),
+                f"{bold_pct:.1f}" if bold_pct else "",
+                str(ncbi.get("top_species") or ncbi.get("top_genus") or ""),
+                f"{ncbi_pct:.1f}" if ncbi_pct else "",
+                str(gbif.get("canonicalName", "")),
+                str(r.get("consensus_species") or r.get("consensus_genus") or ""),
+                str(r.get("concordance_status", "")),
+                str(r.get("qc_flag", "")),
+            ]
+
+            x_pos = 0
+            for col_idx, val_str in enumerate(cell_values):
+                w = col_widths[col_idx]
+                col_name = RESULTS_COLUMNS[col_idx]
+                bg_hex, fg_hex, is_bold = get_cell_highlight(col_name, val_str)
+
+                c.create_rectangle(
+                    x_pos, y0, x_pos + w, y1,
+                    fill=bg_hex, outline=PALETTE["border"], width=1
+                )
+                c.create_text(
+                    x_pos + 10,
+                    y0 + (row_h // 2),
+                    text=val_str,
+                    anchor="w",
+                    fill=fg_hex,
+                    font=FONT_HEADING if is_bold else FONT_BODY,
+                )
+                x_pos += w
+
+        total_h = (len(rows) + 1) * row_h
+        c.configure(scrollregion=(0, 0, total_w, total_h))
+
+    # ------------------------------------------------------------------
     # Circular Spinner Animation & Service Card Updates
     # ------------------------------------------------------------------
     def _animate_spinners(self):
@@ -784,7 +1033,6 @@ class BarcoIDApp:
             state = self.service_states.get(key, "Idle")
             canvas.delete("all")
             if state == "Active":
-                # Subtle background ring + rotating crisp white arc
                 canvas.create_oval(3, 3, 19, 19, outline="#3B8235", width=2)
                 canvas.create_arc(
                     3, 3, 19, 19,
@@ -795,7 +1043,6 @@ class BarcoIDApp:
                     width=2.5,
                 )
             elif state == "Done":
-                # Completed circle with vector checkmark
                 canvas.create_oval(3, 3, 19, 19, outline=PALETTE["primary"], width=2)
                 canvas.create_line(7, 11, 10, 14, 15, 8, fill=PALETTE["primary"], width=2)
 
@@ -886,8 +1133,8 @@ class BarcoIDApp:
             activeforeground=active_fg,
             relief="solid",
             bd=1,
-            padx=16,
-            pady=7,
+            padx=14,
+            pady=6,
             font=FONT_HEADING,
             cursor="hand2",
         )
@@ -1309,6 +1556,8 @@ class BarcoIDApp:
                     f"NO_MATCH: {counts['NO_MATCH']}"
                 )
 
+                self.populate_results_table(rows)
+
                 if not is_dry_run and xlsx_path.exists():
                     self.last_excel_path = xlsx_path
                     self.open_excel_btn.configure(
@@ -1316,6 +1565,8 @@ class BarcoIDApp:
                         fg="#FFFFFF",
                         text="Open Excel Report (Ready)",
                     )
+                if rows:
+                    self.show_step(3)
 
             elif event == "bug_report_ready":
                 report_path = payload
@@ -1340,7 +1591,7 @@ class BarcoIDApp:
         else:
             messagebox.showinfo(
                 "No Excel Report Yet",
-                "Run Identification first (with Dry Run unchecked) to generate the Excel report.",
+                "Run Identification in Step 3 first (with Dry Run unchecked) to generate the Excel report.",
             )
 
     def open_output_folder(self):

@@ -11,9 +11,25 @@ from openpyxl import Workbook
 
 from barcoid.cli import main
 from barcoid.config import BarcoIDConfig
-from barcoid.gui import PALETTE, SVG_ICON_PATH, BarcoIDApp, build_config_from_inputs
+from barcoid.gui import (
+    PALETTE,
+    SVG_ICON_PATH,
+    BarcoIDApp,
+    build_config_from_inputs,
+    get_cell_highlight,
+)
 from barcoid.parsers.metadata import MetadataParser
 from barcoid.pipeline import BarcoIDPipeline
+
+
+def test_single_cell_highlighting_rules():
+    """Verifies that only Concordance_Status and QC_Flag cells receive highlight fills."""
+    assert get_cell_highlight("Sample_ID", "MJB001") == ("#FFFFFF", "#111111", False)
+    assert get_cell_highlight("Concordance_Status", "CONCORDANT") == ("#4C9E45", "#FFFFFF", True)
+    assert get_cell_highlight("Concordance_Status", "NEW_ASSIGNMENT") == ("#EAF4E9", "#111111", True)
+    assert get_cell_highlight("Concordance_Status", "MISMATCH_ALERT") == ("#FDECEC", "#111111", True)
+    assert get_cell_highlight("QC_Flag", "OK") == ("#4C9E45", "#FFFFFF", True)
+    assert get_cell_highlight("QC_Flag", "CONTAMINATION_SUSPECT") == ("#FDECEC", "#111111", True)
 
 
 def test_palette_and_4streams_svg():
@@ -172,6 +188,29 @@ def test_gui_interactive_column_picker():
         app._animate_spinners()
         assert len(app.service_spinners["ncbi"].find_all()) >= 2
         assert len(app.service_spinners["bold"].find_all()) >= 2
+
+        # Step 4: Results table with single-cell highlighting
+        assert len(app.step_frames) == 4
+        app.populate_results_table(
+            [
+                {
+                    "meta": {
+                        "sample_id": "MJB0001426",
+                        "field_morpho_code": "PHEI01",
+                        "field_inferred_genus": "Pheidole",
+                    },
+                    "bold": {"top_species": "Pheidole megacephala", "top_pct_identity": 99.4},
+                    "ncbi": {"top_species": "Pheidole megacephala", "top_pct_identity": 99.2},
+                    "gbif": {"canonicalName": "Pheidole megacephala"},
+                    "consensus_species": "Pheidole megacephala",
+                    "concordance_status": "CONCORDANT",
+                    "qc_flag": "OK",
+                }
+            ]
+        )
+        app.show_step(3)
+        assert app.current_step == 3
+        assert len(app.results_canvas.find_all()) > 20
 
         # Verify Ctrl+Shift+D diagnostic terminal toggle and bug report builder
         assert app.terminal_win is None

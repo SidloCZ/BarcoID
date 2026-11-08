@@ -4,6 +4,7 @@ Multi-tab, styled Excel exporter for BarcoID.
 
 from pathlib import Path
 from typing import Any, Dict, List
+
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -35,8 +36,13 @@ class ExcelExporter:
 
         # Styles
         font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        fill_header = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
-        fill_qc_header = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
+        font_white_bold = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        font_dark_bold = Font(name="Calibri", size=11, bold=True, color="111111")
+        fill_header = PatternFill(start_color="4C9E45", end_color="4C9E45", fill_type="solid")
+        fill_qc_header = PatternFill(start_color="111111", end_color="111111", fill_type="solid")
+        fill_green = PatternFill(start_color="4C9E45", end_color="4C9E45", fill_type="solid")
+        fill_green_tint = PatternFill(start_color="EAF4E9", end_color="EAF4E9", fill_type="solid")
+        fill_alert = PatternFill(start_color="FDECEC", end_color="FDECEC", fill_type="solid")
         align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
         align_left = Alignment(horizontal="left", vertical="center")
         border_thin = Border(
@@ -160,6 +166,16 @@ class ExcelExporter:
                     val_str = str(cell.value or "")
                     if cell.row > 1 and cell.column not in (3, 4, 5, 12, 17, 22):
                         cell.alignment = align_left
+                    if cell.row > 1 and ws in (ws_comp, ws_qc) and cell.column in (27, 28):
+                        if val_str in ("CONCORDANT", "OK"):
+                            cell.fill = fill_green
+                            cell.font = font_white_bold
+                        elif val_str == "NEW_ASSIGNMENT":
+                            cell.fill = fill_green_tint
+                            cell.font = font_dark_bold
+                        elif val_str and val_str != "NO_MATCH":
+                            cell.fill = fill_alert
+                            cell.font = font_dark_bold
                     if len(val_str) > max_len:
                         max_len = len(val_str)
                 ws.column_dimensions[col_letter].width = min(max(max_len + 3, 10), 45)
