@@ -21,6 +21,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 import traceback
+import webbrowser
 import zlib
 from datetime import datetime
 from pathlib import Path
@@ -51,10 +52,11 @@ PALETTE = {
     "text_muted": "#111111",  # No gray text: secondary labels also use crisp #111111
 }
 
-# Strictly 3 Font Styles Across the Entire Application
+# Strictly Font Styles Across Application
 FONT_TITLE = ("Segoe UI", 16, "bold")
 FONT_HEADING = ("Segoe UI", 11, "bold")
 FONT_BODY = ("Segoe UI", 11)
+FONT_SMALL = ("Segoe UI", 9)
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 SVG_ICON_PATH = ASSETS_DIR / "logo.svg"
@@ -1072,6 +1074,30 @@ class BarcoIDApp:
         # Click-through Wizard Step Tabs (4 Steps)
         stepper_frame = tk.Frame(top_bar, bg=PALETTE["card_inner"])
         stepper_frame.pack(side="right")
+
+        # Small 'Made by SidloCZ' tag positioned immediately to the left of the '?' Help Button
+        self.author_tag = tk.Label(
+            stepper_frame,
+            text="Made by SidloCZ",
+            font=FONT_SMALL,
+            fg="#888888",
+            bg=PALETTE["card_inner"],
+            cursor="hand2",
+        )
+        self.author_tag.pack(side="left", padx=(0, 10))
+
+        def _open_author_github(_event=None):
+            webbrowser.open_new_tab("https://github.com/SidloCZ")
+
+        def _on_author_enter(_event=None):
+            self.author_tag.configure(fg=PALETTE["primary"], font=("Segoe UI", 9, "underline"))
+
+        def _on_author_leave(_event=None):
+            self.author_tag.configure(fg="#888888", font=FONT_SMALL)
+
+        self.author_tag.bind("<Button-1>", _open_author_github)
+        self.author_tag.bind("<Enter>", _on_author_enter)
+        self.author_tag.bind("<Leave>", _on_author_leave)
 
         # Dark Gray '?' SVG Help Button positioned immediately to the left of Step 1 button
         self.help_btn = tk.Button(
@@ -2328,6 +2354,9 @@ class BarcoIDApp:
             if img_path.exists():
                 try:
                     photo = tk.PhotoImage(file=str(img_path))
+                    if photo.width() > 760:
+                        factor = int(math.ceil(photo.width() / 720))
+                        photo = photo.subsample(factor, factor)
                     win._guide_photos.append(photo)
                     img_lbl = tk.Label(
                         card, image=photo, bg=PALETTE["card_inner"], relief="solid", bd=1

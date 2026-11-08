@@ -219,6 +219,9 @@ def test_gui_interactive_column_picker():
         assert app.icon_check_selected is not None
         assert app.icon_help is not None
         assert app.help_btn is not None
+        assert app.author_tag is not None
+        assert app.author_tag.cget("text") == "Made by SidloCZ"
+        assert app.author_tag.cget("fg") == "#888888"
         assert len(app._app_icon_refs) >= 1
 
         # Step 4: Results table with single-cell highlighting & segmented summary cards
