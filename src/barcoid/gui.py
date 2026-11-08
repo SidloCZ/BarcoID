@@ -2218,8 +2218,8 @@ class BarcoIDApp:
 
         win = tk.Toplevel(self.root)
         win.title("BarcoID — Step-by-Step User Guide")
-        win.geometry("860x680")
-        win.minsize(680, 500)
+        win.geometry("1040x840")
+        win.minsize(860, 560)
         win.configure(bg=PALETTE["bg_canvas"])
         self.guide_win = win
 
@@ -2276,6 +2276,34 @@ class BarcoIDApp:
 
         scrollable_frame.bind("<Configure>", _on_frame_configure)
         canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Smooth mouse wheel scrolling across canvas and all child widgets
+        def _on_guide_mousewheel(event):
+            if not canvas.winfo_exists():
+                return
+            if event.delta:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif event.num == 4:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                canvas.yview_scroll(1, "units")
+
+        def _bind_mousewheel_recursive(widget):
+            widget.bind("<MouseWheel>", _on_guide_mousewheel, add="+")
+            widget.bind("<Button-4>", _on_guide_mousewheel, add="+")
+            widget.bind("<Button-5>", _on_guide_mousewheel, add="+")
+            for child in widget.winfo_children():
+                _bind_mousewheel_recursive(child)
+
+        win.bind("<MouseWheel>", _on_guide_mousewheel, add="+")
+        win.bind("<Button-4>", _on_guide_mousewheel, add="+")
+        win.bind("<Button-5>", _on_guide_mousewheel, add="+")
+        canvas.bind("<MouseWheel>", _on_guide_mousewheel, add="+")
+        canvas.bind("<Button-4>", _on_guide_mousewheel, add="+")
+        canvas.bind("<Button-5>", _on_guide_mousewheel, add="+")
+        scrollable_frame.bind("<MouseWheel>", _on_guide_mousewheel, add="+")
+        scrollable_frame.bind("<Button-4>", _on_guide_mousewheel, add="+")
+        scrollable_frame.bind("<Button-5>", _on_guide_mousewheel, add="+")
 
         canvas.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
@@ -2354,16 +2382,25 @@ class BarcoIDApp:
             if img_path.exists():
                 try:
                     photo = tk.PhotoImage(file=str(img_path))
-                    if photo.width() > 760:
-                        factor = int(math.ceil(photo.width() / 720))
+                    # Only downsample if image significantly exceeds available card width (e.g. >980px)
+                    if photo.width() > 980:
+                        factor = int(math.ceil(photo.width() / 940))
                         photo = photo.subsample(factor, factor)
                     win._guide_photos.append(photo)
+
                     img_lbl = tk.Label(
-                        card, image=photo, bg=PALETTE["card_inner"], relief="solid", bd=1
+                        card,
+                        image=photo,
+                        bg=PALETTE["card_inner"],
+                        relief="solid",
+                        bd=1,
                     )
                     img_lbl.pack(anchor="center", pady=(0, 6))
                 except Exception:
                     pass
+
+        # Recursively bind mouse wheel to all cards and child widgets created
+        _bind_mousewheel_recursive(scrollable_frame)
 
         # Close button in bottom bar
         btm = tk.Frame(win, bg=PALETTE["bg_canvas"], padx=16, pady=8)

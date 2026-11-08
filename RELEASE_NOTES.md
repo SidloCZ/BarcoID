@@ -10,7 +10,8 @@
 
 - **Authentic 4-Step Interactive User Guide:**
   - Upgraded the in-app Step-by-Step User Guide dialog (`?` button) with official high-resolution interface captures for all 4 wizard steps.
-  - Implemented automatic high-DPI image subsampling so guide screenshots render crisply on any display scaling without horizontal overflow.
+  - Enlarged the guide window to 1040x840 so screenshots render at 100% full original sharp resolution.
+  - Added recursive mouse wheel scrolling across all cards, labels, images, and backgrounds throughout the guide dialog.
 
 - **Author Tag & Quick Access:**
   - Added a clean, minimalist "Made by SidloCZ" attribution tag positioned immediately to the left of the Help (`?`) icon in the desktop header.
