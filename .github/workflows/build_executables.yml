@@ -73,4 +73,16 @@ jobs:
         with:
           files: release-assets/**/*
           generate_release_notes: true
+          body: |
+            ### Standalone Zero-Installation Binaries
+            Download and run the binary for your platform without installing Python:
+            - **Windows (x64):** `BarcoID-Windows-x64.exe`
+            - **macOS:** `BarcoID-macOS`
+            - **Linux (x64):** `BarcoID-Linux-x64`
+
+            #### Windows SmartScreen Notice ("Windows protected your PC")
+            Because BarcoID is a newly released open-source scientific tool without a commercial EV certificate, Windows Defender SmartScreen may display an unrecognized app notice:
+            1. Click **"More info"** (*Další informace*).
+            2. Click **"Run anyway"** (*Přesto spustit*).
+            *(Alternatively, right-click `BarcoID-Windows-x64.exe` > Properties > check "Unblock" > OK).*
 

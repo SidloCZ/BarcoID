@@ -87,13 +87,16 @@ Tento soubor slouží jako centrální a závazná sada instrukcí pro AI asiste
   - Na konci každé zprávy v chatu připrav výstižný návrh commit zprávy v angličtině podle konvence (`feat(...)`, `fix(...)`, `chore(...)`, `docs(...)`, `refactor(...)`, `style(...)`).
   - Vypiš **pouze čistý text zprávy** bez balení do `git commit -m` a bez uvozovek.
   - Asistent **nikdy nespouští commit ani push automaticky**, pouze navrhne zprávu a čeká na potvrzení uživatelem.
-- **Sémantické verzování (SemVer):**
-  - Při aktualizaci verzí (`manifest.json`, `package.json` apod.) dodržuj:
+- **Sémantické verzování (SemVer) a Release Notes:**
+  - Při aktualizaci verzí (`pyproject.toml`, `src/barcoid/__init__.py`) dodržuj:
     - **PATCH (`x.y.Z+1`):** Opravy chyb, drobný refaktoring, styly, textové úpravy.
     - **MINOR (`x.Y+1.0`):** Nové funkce, nové UI komponenty, rozšíření API.
     - **MAJOR (`X+1.0.0`):** Zlomové změny architektury, nekompatibilní přepracování.
+  - **Automatické generování Release Notes:**
+    - Při každé přípravě nového vydání (vytvoření nového git tagu, sestavení binárek nebo publikaci release na GitHubu) asistent **VŽDY automaticky sestaví kompletní anglické Release Notes** (přehled klíčových novinek a opravených chyb, odkazy na samostatné spustitelné soubory Windows/macOS/Linux a srozumitelné instrukce pro Windows SmartScreen „More info -> Run anyway“).
+    - Tyto poznámky asistent uloží do `RELEASE_NOTES.md` a nabídne je uživateli přímo do chatu pro snadné vložení do GitHub Releases.
 - **Udržování dokumentace:**
-  - Při zásadní změně struktury kódu nebo novém prvku adekvátně aktualizuj soubory dokumentace (`README.md`, `STRUKTURA_PROJEKTU.md`).
+  - Při zásadní změně struktury kódu nebo novém prvku adekvátně aktualizuj soubory dokumentace (`README.md`, `STRUKTURA_PROJEKTU.md`, `RELEASE_NOTES.md`).
 
 ---
 

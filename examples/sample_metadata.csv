@@ -1,5 +1,21 @@
-sample_id,plate,locality,year,field_morphospecies,field_genus,voucher_code
-MJB0001426_MJB016_redo3,MJB016_redo3,Valavahalo,2017,PHEI01,Pheidole,GUA0444
-MJB0001430_MJB016_redo3,MJB016_redo3,Valavahalo,2017,,,GUA0448
-MJB0001457_MJB016_redo3,MJB016_redo3,Valavahalo,2017,TECH01,Technomyrmex,GUA0475
-
+sample_id,voucher_code,field_morphospecies,field_genus,country,locality,collection_year,collector,habitat_notes
+ANT01,VOUCH-202X-001,PHEI01,Pheidole,France,"Marseille, Calanques scrub",2021,J. Martin,Under flat limestone rock
+ANT02,VOUCH-202X-002,Camponotus vagus,Camponotus,Italy,"Tuscany, Chianti oak woods",2019,M. Rossi,"Decaying oak trunk, sunny clearing"
+ANT03,VOUCH-202X-003,Lasius niger,Lasius,Germany,"Berlin, Tiergarten park",2022,A. Mueller,Garden soil near pavement margin
+ANT04,VOUCH-202X-004,Formica rufa,Formica,Czech Republic,"Sumava National Park, Modrava",2023,K. Sidlik,"Spruce forest, large thatched mound"
+ANT05,VOUCH-202X-005,Solenopsis invicta,Solenopsis,USA,"Florida, Gainesville suburbs",2020,D. Adams,Disturbed roadside lawn mound
+ANT06,VOUCH-202X-006,Tetramorium caespitum,Tetramorium,Spain,"Madrid, Casa de Campo",2022,C. Gomez,Sidewalk crack nest entrance
+ANT07,VOUCH-202X-007,,,United Kingdom,"Oxfordshire, Wytham Woods pasture",2022,R. Evans,"Grazed meadow turf, moist tussock"
+ANT08,VOUCH-202X-008,Linepithema humile,Linepithema,Portugal,"Lisbon, Sintra foothills",2021,P. Silva,Invasive supercolony trail on citrus
+ANT09,VOUCH-202X-009,Formicidae sp.,,Greece,"Crete, Chania coastal phrygana",2018,N. Karas,"Dry stony slope, foraging on thistle"
+ANT10,VOUCH-202X-010,ODON01,Odontomachus,Brazil,"Amazonas, Manaus forest reserve",2023,L. Ferreira,Primary terra firme leaf litter
+ANT11,VOUCH-202X-011,CREM01,Crematogaster,Croatia,"Dalmatia, Split karst scrub",2022,I. Horvat,"Old olive trunk, acrobatic posture"
+ANT12,VOUCH-202X-012,Tapinoma melanocephalum,Tapinoma,Poland,"Warsaw, Botanical Garden greenhouse",2023,P. Kowalski,Heated glasshouse soil border
+ANT13,VOUCH-202X-013,HYPO01,Hypoponera,Austria,"Vienna, Donau-Auen riparian forest",2024,S. Gruber,"Rotting wood humus, subterranean"
+ANT14,VOUCH-202X-014,Polyrhachis dives,Polyrhachis,Japan,"Okinawa, Yanbaru subtropical forest",2022,T. Tanaka,Arboreal carton nest in low shrub
+ANT15,VOUCH-202X-015,STRO01,Strumigenys,USA,"Florida, San Felasco Hammock",2020,D. Adams,Berlese funnel extracted leaf litter
+ANT16,VOUCH-202X-016,Colobopsis truncata,Colobopsis,Slovakia,"Bratislava, Devin oak wood pasture",2023,J. Kovac,"Quercus branch gall, phragmotic major"
+ANT17,VOUCH-202X-017,Pseudomyrmex gracilis,Pseudomyrmex,Mexico,"Yucatan, Merida thorny woodland",2023,G. Morales,Hollow Acacia hindsii branch twig
+ANT18,VOUCH-202X-018,BRACH01,Brachymyrmex,Argentina,"Cordoba, Sierras de Cordoba scrub",2023,M. Alvarez,Dry grass roots beneath stone
+ANT19,VOUCH-202X-019,Lasius flavus,Lasius,Switzerland,"Valais, Sion sunny dry vineyard steppe",2022,F. Favre,Steep xerothermic hillside under pebble
+ANT20,VOUCH-202X-020,Nylanderia fulva,Nylanderia,Colombia,"Valle del Cauca, Cali rural outskirts",2023,C. Restrepo,Coffee agroforestry plantation leaf litter

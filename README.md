@@ -39,11 +39,20 @@ Rather than relying on a single reference database, BarcoID triangulates four in
 
 ## Download & Run (No Installation Required)
 
-1. Download **`BarcoID.exe`** (Windows) or the standalone binary for your platform from **GitHub Releases** (or build locally via `python build_executable.py`).
-2. Double-click **`BarcoID.exe`** to open the Desktop GUI:
-   - **Step 1:** Click **Browse FASTA** to select your input DNA barcode `.fasta` file.
-   - **Step 2 (Optional):** Click **Choose Metadata File (.csv / .tsv / .xlsx)** to open your specimen sheet directly inside the app's preview table, then click the column header containing your **Morphospecies** names.
-   - **Step 3:** Click **Run Identification** to execute the 4-source taxonomic pipeline and click **Open Excel Report** when finished.
+1. Download **`BarcoID-Windows-x64.exe`** (or the macOS / Linux binary) from [GitHub Releases](https://github.com/SidloCZ/BarcoID/releases).
+2. Double-click the downloaded executable to launch the Desktop GUI:
+   - **Step 1 (Sequences & Parameters):** Click **Browse FASTA** to select your DNA barcode file, adjust target taxon and cache settings.
+   - **Step 2 (Metadata Viewer):** Optionally load your specimen spreadsheet (`.csv`, `.tsv`, `.xlsx`) directly in the app table and click the header to pick your **Morphospecies** and **Sample ID** columns.
+   - **Step 3 (Run):** Click **Run Identification** to trigger the live 4-stream verification (Morphology, BOLD, NCBI BLAST, GBIF).
+   - **Step 4 (Results):** Inspect the interactive table with highlighted concordance and QC flags, double-click headers to auto-fit column widths, and click **Open Excel Report**.
+
+### Windows SmartScreen Notice ("Windows protected your PC")
+
+Because BarcoID is a newly released open-source scientific tool without an expensive commercial code-signing certificate, Microsoft Defender SmartScreen may display an unrecognized app notice when you run it for the first time:
+
+- **Inside the dialog:** Click **"More info"** (*Další informace*) and then click the **"Run anyway"** (*Přesto spustit*) button.
+- **Via File Properties:** Right-click `BarcoID-Windows-x64.exe` > select **Properties** (*Vlastnosti*) > check **"Unblock"** (*Odblokovat*) at the bottom > click **OK**.
+- **Via PowerShell:** Run `Unblock-File -Path .\BarcoID-Windows-x64.exe`.
 
 ---
 
