@@ -1,10 +1,9 @@
 """
 Standalone Desktop GUI for BarcoID.
 Click-through 4-step wizard with native High-DPI text rendering, maximized startup,
-responsive layouts for smaller window sizes, strict high-contrast palette (#111111 black
-on #FFFFFF white + #4C9E45 botanical green), concurrent 4-stream circular spinners,
-Step 4 Results table with single-cell highlighting on Concordance_Status and QC_Flag,
-and a hidden Diagnostics / Bug Report terminal triggered via Ctrl+Shift+D.
+responsive layouts, custom ModernScrollbar sliders, interactive column resizing and
+Excel-style double-click auto-fit, single-cell highlighting on Concordance_Status
+and QC_Flag, and a hidden Diagnostics / Bug Report terminal triggered via Ctrl+Shift+D.
 """
 
 import ctypes
@@ -17,11 +16,12 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 import traceback
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
 
@@ -68,6 +68,14 @@ RESULTS_COLUMNS = [
     "QC_Flag",
 ]
 
+# Columns fully expanded by default in Step 4; intermediate columns start squished
+PRIMARY_EXPANDED_COLUMNS = {
+    "Sample_ID",
+    "Consensus_Species",
+    "Concordance_Status",
+    "QC_Flag",
+}
+
 
 def get_cell_highlight(col_name: str, value: str) -> Tuple[str, str, bool]:
     """
@@ -107,6 +115,125 @@ def enable_high_dpi():
                     ctypes.windll.user32.SetProcessDPIAware()
                 except Exception:
                     pass
+
+
+class ModernScrollbar(tk.Canvas):
+    """
+    Clean, flat, high-contrast scrollbar slider (#FFFFFF track + #4C9E45 thumb)
+    replacing Tkinter's legacy Windows 95 gray/beige scrollbar.
+    """
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        orient: str = "vertical",
+        command: Optional[Callable[..., Any]] = None,
+        thickness: int = 14,
+    ):
+        self.orient = orient
+        self.command = command
+        width = thickness if orient == "vertical" else 100
+        height = 100 if orient == "vertical" else thickness
+        super().__init__(
+            parent,
+            width=width,
+            height=height,
+            bg=PALETTE["card_inner"],
+            highlightbackground=PALETTE["border"],
+            highlightthickness=1,
+            bd=0,
+        )
+        self.first = 0.0
+        self.last = 1.0
+        self.hover = False
+        self.dragging = False
+        self.drag_start_coord = 0
+        self.drag_start_first = 0.0
+
+        self.bind("<Configure>", lambda _e: self._redraw())
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def set(self, first: Any, last: Any):
+        """Standard Tkinter scrollbar callback invoked by scrollable widgets."""
+        try:
+            self.first = max(0.0, min(1.0, float(first)))
+            self.last = max(0.0, min(1.0, float(last)))
+        except ValueError:
+            self.first, self.last = 0.0, 1.0
+        self._redraw()
+
+    def _redraw(self):
+        self.delete("all")
+        w = max(1, self.winfo_width())
+        h = max(1, self.winfo_height())
+
+        # If content fits completely, draw subtle green tint bar or leave clean white track
+        span = self.last - self.first
+        thumb_color = PALETTE["primary_hover"] if (self.hover or self.dragging) else PALETTE["primary"]
+        if span >= 0.999:
+            thumb_color = PALETTE["primary_tint"]
+
+        pad = 2
+        if self.orient == "vertical":
+            track_len = max(1, h - 2 * pad)
+            y0 = pad + int(self.first * track_len)
+            y1 = pad + max(y0 - pad + 24, int(self.last * track_len))
+            y1 = min(h - pad, y1)
+            self.create_rectangle(pad, y0, w - pad, y1, fill=thumb_color, outline="")
+        else:
+            track_len = max(1, w - 2 * pad)
+            x0 = pad + int(self.first * track_len)
+            x1 = pad + max(x0 - pad + 24, int(self.last * track_len))
+            x1 = min(w - pad, x1)
+            self.create_rectangle(x0, pad, x1, h - pad, fill=thumb_color, outline="")
+
+    def _on_enter(self, _event):
+        self.hover = True
+        self._redraw()
+
+    def _on_leave(self, _event):
+        self.hover = False
+        self._redraw()
+
+    def _on_press(self, event):
+        if not self.command:
+            return
+        w = max(1, self.winfo_width())
+        h = max(1, self.winfo_height())
+        coord = event.y if self.orient == "vertical" else event.x
+        track_len = max(1, h if self.orient == "vertical" else w)
+        click_frac = coord / track_len
+
+        if self.first <= click_frac <= self.last:
+            self.dragging = True
+            self.drag_start_coord = coord
+            self.drag_start_first = self.first
+        else:
+            # Jump to clicked position
+            span = self.last - self.first
+            target = max(0.0, min(1.0 - span, click_frac - span / 2.0))
+            self.command("moveto", target)
+        self._redraw()
+
+    def _on_drag(self, event):
+        if not self.dragging or not self.command:
+            return
+        w = max(1, self.winfo_width())
+        h = max(1, self.winfo_height())
+        coord = event.y if self.orient == "vertical" else event.x
+        track_len = max(1, h if self.orient == "vertical" else w)
+        delta_frac = (coord - self.drag_start_coord) / track_len
+        span = self.last - self.first
+        target = max(0.0, min(1.0 - span, self.drag_start_first + delta_frac))
+        self.command("moveto", target)
+
+    def _on_release(self, _event):
+        self.dragging = False
+        self._redraw()
 
 
 class QueueLogHandler(logging.Handler):
@@ -214,6 +341,10 @@ class BarcoIDApp:
         self.root.configure(bg=PALETTE["bg_canvas"])
         self._maximize_window()
 
+        # Font measurement helpers for cell truncation & Excel-style auto-fit
+        self.tk_font_body = tkfont.Font(root=self.root, font=FONT_BODY)
+        self.tk_font_heading = tkfont.Font(root=self.root, font=FONT_HEADING)
+
         # State variables
         self.current_step = 0
         self.fasta_var = tk.StringVar()
@@ -237,7 +368,7 @@ class BarcoIDApp:
         )
         self.run_overview_var = tk.StringVar(value="")
 
-        # Execution, Spinner Animation, Results & Diagnostics state
+        # Execution, Spinner Animation, Results Table & Diagnostics state
         self.is_running = False
         self.spinner_angle = 0
         self.service_states: Dict[str, str] = {
@@ -247,6 +378,12 @@ class BarcoIDApp:
             "gbif": "Idle",
         }
         self.last_results_rows: List[Dict[str, Any]] = []
+        self.results_matrix: List[List[str]] = []
+        self.results_col_widths: List[int] = self._default_results_col_widths()
+        self._resizing_col_idx: Optional[int] = None
+        self._resize_start_x: int = 0
+        self._resize_start_w: int = 0
+
         self.last_excel_path: Optional[Path] = None
         self.last_error_trace: str = ""
         self.log_history: List[str] = []
@@ -282,6 +419,21 @@ class BarcoIDApp:
             self.dpi_scale = float(dpi) / 96.0
         except Exception:
             self.dpi_scale = 1.0
+
+    def _default_results_col_widths(self) -> List[int]:
+        """
+        Returns initial widths for Step 4 columns:
+        - Sample_ID, Consensus_Species, Concordance_Status, QC_Flag are wide & fully visible.
+        - Intermediate columns in between start squished (~58px scaled) so key columns fit on screen.
+        """
+        squished_w = max(56, int(58 * self.dpi_scale))
+        expanded_map = {
+            "Sample_ID": max(220, int(220 * self.dpi_scale)),
+            "Consensus_Species": max(210, int(210 * self.dpi_scale)),
+            "Concordance_Status": max(190, int(190 * self.dpi_scale)),
+            "QC_Flag": max(195, int(195 * self.dpi_scale)),
+        }
+        return [expanded_map.get(col, squished_w) for col in RESULTS_COLUMNS]
 
     def _bind_shortcuts(self):
         """Binds Ctrl+Shift+D to toggle the hidden Diagnostics & Bug Report window."""
@@ -562,7 +714,7 @@ class BarcoIDApp:
         ).pack(side="right")
 
     # ------------------------------------------------------------------
-    # STEP 2: INTERACTIVE METADATA VIEWER & COLUMN PICKER (Responsive 2-Row Toolbar)
+    # STEP 2: INTERACTIVE METADATA VIEWER & COLUMN PICKER (with ModernScrollbar)
     # ------------------------------------------------------------------
     def _build_step2_metadata(self):
         page = tk.Frame(
@@ -614,7 +766,6 @@ class BarcoIDApp:
         ).pack(side="left")
 
         # Row 2 of Toolbar: Elastic 4-Column Grid for Morphospecies Column & Sample ID Column
-        # Ensures both dropdowns are ALWAYS visible and resize proportionally in smaller windows.
         col_selectors = tk.Frame(page, bg=PALETTE["card_inner"])
         col_selectors.pack(fill="x", pady=(0, 10))
         col_selectors.columnconfigure(1, weight=1)
@@ -674,22 +825,41 @@ class BarcoIDApp:
             footer2, "Next: Run ->", lambda: self.show_step(2), primary=True
         ).pack(side="right")
 
-        # Interactive Spreadsheet Preview Table
+        # Interactive Spreadsheet Preview Table with ModernScrollbars
         table_wrap = tk.Frame(
             page, bg=PALETTE["card_inner"], highlightbackground=PALETTE["border"], highlightthickness=1
         )
         table_wrap.pack(fill="both", expand=True)
 
         self.meta_tree = ttk.Treeview(table_wrap, show="headings")
-        vsb = ttk.Scrollbar(table_wrap, orient="vertical", command=self.meta_tree.yview)
-        hsb = ttk.Scrollbar(table_wrap, orient="horizontal", command=self.meta_tree.xview)
+        vsb = ModernScrollbar(table_wrap, orient="vertical", command=self.meta_tree.yview)
+        hsb = ModernScrollbar(table_wrap, orient="horizontal", command=self.meta_tree.xview)
         self.meta_tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self.meta_tree.bind("<Double-Button-1>", self._on_meta_tree_double_click)
 
         self.meta_tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
         table_wrap.rowconfigure(0, weight=1)
         table_wrap.columnconfigure(0, weight=1)
+
+    def _on_meta_tree_double_click(self, event):
+        """Excel-style double-click auto-fit on Step 2 Metadata table columns."""
+        region = self.meta_tree.identify_region(event.x, event.y)
+        if region in ("separator", "heading"):
+            col_id = self.meta_tree.identify_column(event.x)
+            if col_id and col_id.startswith("#"):
+                idx = int(col_id[1:]) - 1
+                if 0 <= idx < len(self.meta_columns):
+                    col_name = self.meta_columns[idx]
+                    heading_txt = self.meta_tree.heading(col_name, "text")
+                    max_px = self.tk_font_heading.measure(heading_txt) + 28
+                    for r in self.meta_rows:
+                        if idx < len(r):
+                            w = self.tk_font_body.measure(str(r[idx])) + 24
+                            if w > max_px:
+                                max_px = w
+                    self.meta_tree.column(col_name, width=max_px)
 
     # ------------------------------------------------------------------
     # STEP 3: RUN (Dedicated Execution Page with 2x2 Responsive Stream Cards)
@@ -723,7 +893,7 @@ class BarcoIDApp:
             anchor="w",
         ).pack(fill="x", pady=(0, 12))
 
-        # 4 Evidence Stream Cards in a Responsive 2x2 Grid (never overflows in smaller windows)
+        # 4 Evidence Stream Cards in a Responsive 2x2 Grid
         srv_grid = tk.Frame(page, bg=PALETTE["card_inner"])
         srv_grid.pack(fill="x", pady=(0, 14))
         srv_grid.columnconfigure(0, weight=1)
@@ -828,7 +998,7 @@ class BarcoIDApp:
         self.log_text.pack(fill="both", expand=True)
 
     # ------------------------------------------------------------------
-    # STEP 4: RESULTS (Table Viewer with Single-Cell Highlighting)
+    # STEP 4: RESULTS (Interactive Resizable & Auto-Expandable Table)
     # ------------------------------------------------------------------
     def _build_step4_results(self):
         page = tk.Frame(
@@ -850,7 +1020,7 @@ class BarcoIDApp:
             anchor="w",
         ).pack(fill="x", pady=(0, 10))
 
-        # Top Action & Summary Bar
+        # Top Action & Hint Bar
         res_bar = tk.Frame(page, bg=PALETTE["card_inner"])
         res_bar.pack(fill="x", pady=(0, 10))
 
@@ -862,7 +1032,19 @@ class BarcoIDApp:
         self.open_folder_btn = self._make_button(
             res_bar, "Open Results Folder", self.open_output_folder, primary=False
         )
-        self.open_folder_btn.pack(side="left")
+        self.open_folder_btn.pack(side="left", padx=(0, 10))
+
+        self._make_button(
+            res_bar, "Reset Column Widths", self.reset_results_column_widths, primary=False
+        ).pack(side="left")
+
+        tk.Label(
+            res_bar,
+            text="Tip: Drag column borders to resize, or double-click any column header/border to expand.",
+            font=FONT_BODY,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+        ).pack(side="right")
 
         # Concordance Summary Banner
         self.summary_var = tk.StringVar(
@@ -889,7 +1071,7 @@ class BarcoIDApp:
             footer4, "<- Back: Run", lambda: self.show_step(2), primary=False
         ).pack(side="left")
 
-        # Scrollable Canvas Grid for Single-Cell Highlighted Results Table
+        # Scrollable Canvas Grid with ModernScrollbars
         grid_wrap = tk.Frame(
             page, bg=PALETTE["card_inner"], highlightbackground=PALETTE["border"], highlightthickness=1
         )
@@ -898,8 +1080,8 @@ class BarcoIDApp:
         self.results_canvas = tk.Canvas(
             grid_wrap, bg=PALETTE["card_inner"], highlightthickness=0
         )
-        res_vsb = ttk.Scrollbar(grid_wrap, orient="vertical", command=self.results_canvas.yview)
-        res_hsb = ttk.Scrollbar(grid_wrap, orient="horizontal", command=self.results_canvas.xview)
+        res_vsb = ModernScrollbar(grid_wrap, orient="vertical", command=self.results_canvas.yview)
+        res_hsb = ModernScrollbar(grid_wrap, orient="horizontal", command=self.results_canvas.xview)
         self.results_canvas.configure(yscrollcommand=res_vsb.set, xscrollcommand=res_hsb.set)
 
         self.results_canvas.grid(row=0, column=0, sticky="nsew")
@@ -908,7 +1090,12 @@ class BarcoIDApp:
         grid_wrap.rowconfigure(0, weight=1)
         grid_wrap.columnconfigure(0, weight=1)
 
-        # Mousewheel support on the results table canvas
+        # Interactive mouse bindings for column resizing, Excel double-click auto-fit, and wheel scrolling
+        self.results_canvas.bind("<Motion>", self._on_results_motion)
+        self.results_canvas.bind("<ButtonPress-1>", self._on_results_press)
+        self.results_canvas.bind("<B1-Motion>", self._on_results_drag)
+        self.results_canvas.bind("<ButtonRelease-1>", self._on_results_release)
+        self.results_canvas.bind("<Double-Button-1>", self._on_results_double_click)
         self.results_canvas.bind(
             "<MouseWheel>",
             lambda e: self.results_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
@@ -916,43 +1103,130 @@ class BarcoIDApp:
 
         self.populate_results_table([])
 
+    # ------------------------------------------------------------------
+    # Interactive Results Table Rendering, Truncation & Resizing
+    # ------------------------------------------------------------------
+    def _fit_text_to_width(self, text: str, max_px: int, is_bold: bool = False) -> str:
+        """Truncates text with '...' so squished columns never spill over into adjacent cells."""
+        if not text:
+            return ""
+        font_obj = self.tk_font_heading if is_bold else self.tk_font_body
+        avail = max_px - 16
+        if avail <= 6:
+            return ""
+        if font_obj.measure(text) <= avail:
+            return text
+        ellipsis = "..."
+        ell_w = font_obj.measure(ellipsis)
+        if avail <= ell_w:
+            return "."
+        low = 0
+        high = len(text)
+        best = ""
+        while low <= high:
+            mid = (low + high) // 2
+            cand = text[:mid]
+            if font_obj.measure(cand) + ell_w <= avail:
+                best = cand
+                low = mid + 1
+            else:
+                high = mid - 1
+        return best + ellipsis
+
+    def _compute_autofit_col_width(self, col_idx: int) -> int:
+        """Computes the exact pixel width needed to display the header and all values in `col_idx`."""
+        col_name = RESULTS_COLUMNS[col_idx]
+        max_px = self.tk_font_heading.measure(col_name) + 28
+        for row_vals in self.results_matrix:
+            if col_idx < len(row_vals):
+                val_str = row_vals[col_idx]
+                _, _, is_bold = get_cell_highlight(col_name, val_str)
+                f_obj = self.tk_font_heading if is_bold else self.tk_font_body
+                w = f_obj.measure(val_str) + 28
+                if w > max_px:
+                    max_px = w
+        return max(80, max_px)
+
+    def reset_results_column_widths(self):
+        """Resets Step 4 column widths to default (primary columns expanded, middle columns squished)."""
+        self.results_col_widths = self._default_results_col_widths()
+        for idx, col_name in enumerate(RESULTS_COLUMNS):
+            if col_name in PRIMARY_EXPANDED_COLUMNS:
+                self.results_col_widths[idx] = max(
+                    self.results_col_widths[idx], self._compute_autofit_col_width(idx)
+                )
+        self._redraw_results_canvas()
+
+    def auto_expand_results_column(self, col_idx: int):
+        """
+        Excel-style double-click behavior:
+        - If the column is currently narrower than its full auto-fit width, expand it to full auto-fit width.
+        - If it is already expanded and is an intermediate column, squish it back to compact width.
+        """
+        if not (0 <= col_idx < len(RESULTS_COLUMNS)):
+            return
+        full_w = self._compute_autofit_col_width(col_idx)
+        cur_w = self.results_col_widths[col_idx]
+        col_name = RESULTS_COLUMNS[col_idx]
+        squished_w = max(56, int(58 * self.dpi_scale))
+
+        if cur_w < full_w - 4:
+            self.results_col_widths[col_idx] = full_w
+        elif col_name not in PRIMARY_EXPANDED_COLUMNS:
+            self.results_col_widths[col_idx] = squished_w
+        else:
+            self.results_col_widths[col_idx] = full_w
+        self._redraw_results_canvas()
+
     def populate_results_table(self, rows: List[Dict[str, Any]]):
-        """
-        Renders the identification results table onto `self.results_canvas` with
-        individual cell highlighting on `Concordance_Status` and `QC_Flag`.
-        """
+        """Extracts cell values from pipeline rows, auto-fits the 4 primary columns, and draws the grid."""
         self.last_results_rows = list(rows)
+        self.results_matrix = []
+        for r in rows:
+            meta = r.get("meta", {})
+            bold = r.get("bold", {})
+            ncbi = r.get("ncbi", {})
+            gbif = r.get("gbif", {})
+
+            bold_pct = bold.get("top_pct_identity", 0.0)
+            ncbi_pct = ncbi.get("top_pct_identity", 0.0)
+
+            self.results_matrix.append([
+                str(meta.get("sample_id", "")),
+                str(meta.get("field_morpho_code", "")),
+                str(meta.get("field_inferred_genus", "")),
+                str(bold.get("top_species") or bold.get("top_genus") or ""),
+                f"{bold_pct:.1f}" if bold_pct else "",
+                str(ncbi.get("top_species") or ncbi.get("top_genus") or ""),
+                f"{ncbi_pct:.1f}" if ncbi_pct else "",
+                str(gbif.get("canonicalName", "")),
+                str(r.get("consensus_species") or r.get("consensus_genus") or ""),
+                str(r.get("concordance_status", "")),
+                str(r.get("qc_flag", "")),
+            ])
+
+        self.reset_results_column_widths()
+
+    def _redraw_results_canvas(self):
+        """Renders the Step 4 table using current `self.results_col_widths` with cell clipping."""
         c = self.results_canvas
         c.delete("all")
 
         row_h = max(34, int(34 * self.dpi_scale))
-        base_widths = [
-            190,  # Sample_ID
-            120,  # Field_Morpho
-            130,  # Field_Genus
-            165,  # BOLD_Taxon
-            85,   # BOLD_%
-            165,  # NCBI_Taxon
-            85,   # NCBI_%
-            165,  # GBIF_Name
-            175,  # Consensus_Species
-            165,  # Concordance_Status
-            180,  # QC_Flag
-        ]
-        col_widths = [max(w, int(w * self.dpi_scale)) for w in base_widths]
 
         # 1. Draw Header Row
         x_offset = 0
         for col_idx, col_name in enumerate(RESULTS_COLUMNS):
-            w = col_widths[col_idx]
+            w = self.results_col_widths[col_idx]
             c.create_rectangle(
                 x_offset, 0, x_offset + w, row_h,
                 fill=PALETTE["primary_tint"], outline=PALETTE["border"], width=1
             )
+            clipped_hdr = self._fit_text_to_width(col_name, w, is_bold=True)
             c.create_text(
-                x_offset + 10,
+                x_offset + 8,
                 row_h // 2,
-                text=col_name,
+                text=clipped_hdr,
                 anchor="w",
                 fill=PALETTE["text_dark"],
                 font=FONT_HEADING,
@@ -961,7 +1235,7 @@ class BarcoIDApp:
 
         total_w = x_offset
 
-        if not rows:
+        if not self.results_matrix:
             c.create_text(
                 20,
                 row_h + 28,
@@ -974,35 +1248,12 @@ class BarcoIDApp:
             return
 
         # 2. Draw Data Rows (with single-cell highlighting on Concordance_Status & QC_Flag)
-        for r_idx, r in enumerate(rows):
+        for r_idx, cell_values in enumerate(self.results_matrix):
             y0 = (r_idx + 1) * row_h
             y1 = y0 + row_h
-
-            meta = r.get("meta", {})
-            bold = r.get("bold", {})
-            ncbi = r.get("ncbi", {})
-            gbif = r.get("gbif", {})
-
-            bold_pct = bold.get("top_pct_identity", 0.0)
-            ncbi_pct = ncbi.get("top_pct_identity", 0.0)
-
-            cell_values = [
-                str(meta.get("sample_id", "")),
-                str(meta.get("field_morpho_code", "")),
-                str(meta.get("field_inferred_genus", "")),
-                str(bold.get("top_species") or bold.get("top_genus") or ""),
-                f"{bold_pct:.1f}" if bold_pct else "",
-                str(ncbi.get("top_species") or ncbi.get("top_genus") or ""),
-                f"{ncbi_pct:.1f}" if ncbi_pct else "",
-                str(gbif.get("canonicalName", "")),
-                str(r.get("consensus_species") or r.get("consensus_genus") or ""),
-                str(r.get("concordance_status", "")),
-                str(r.get("qc_flag", "")),
-            ]
-
             x_pos = 0
             for col_idx, val_str in enumerate(cell_values):
-                w = col_widths[col_idx]
+                w = self.results_col_widths[col_idx]
                 col_name = RESULTS_COLUMNS[col_idx]
                 bg_hex, fg_hex, is_bold = get_cell_highlight(col_name, val_str)
 
@@ -1010,18 +1261,75 @@ class BarcoIDApp:
                     x_pos, y0, x_pos + w, y1,
                     fill=bg_hex, outline=PALETTE["border"], width=1
                 )
+                clipped_val = self._fit_text_to_width(val_str, w, is_bold=is_bold)
                 c.create_text(
-                    x_pos + 10,
+                    x_pos + 8,
                     y0 + (row_h // 2),
-                    text=val_str,
+                    text=clipped_val,
                     anchor="w",
                     fill=fg_hex,
                     font=FONT_HEADING if is_bold else FONT_BODY,
                 )
                 x_pos += w
 
-        total_h = (len(rows) + 1) * row_h
+        total_h = (len(self.results_matrix) + 1) * row_h
         c.configure(scrollregion=(0, 0, total_w, total_h))
+
+    def _find_border_col_index(self, canvas_x: float, tolerance: int = 6) -> Optional[int]:
+        """Returns the column index whose right border is within `tolerance` px of `canvas_x`."""
+        acc = 0
+        for idx, w in enumerate(self.results_col_widths):
+            acc += w
+            if abs(canvas_x - acc) <= tolerance:
+                return idx
+        return None
+
+    def _find_clicked_col_index(self, canvas_x: float) -> Optional[int]:
+        """Returns the column index containing `canvas_x`."""
+        acc = 0
+        for idx, w in enumerate(self.results_col_widths):
+            if acc <= canvas_x <= acc + w:
+                return idx
+            acc += w
+        return None
+
+    def _on_results_motion(self, event):
+        cx = self.results_canvas.canvasx(event.x)
+        border_idx = self._find_border_col_index(cx)
+        if border_idx is not None:
+            self.results_canvas.configure(cursor="sb_h_double_arrow")
+        else:
+            self.results_canvas.configure(cursor="hand2" if event.y <= max(34, int(34 * self.dpi_scale)) else "")
+
+    def _on_results_press(self, event):
+        cx = self.results_canvas.canvasx(event.x)
+        border_idx = self._find_border_col_index(cx)
+        if border_idx is not None:
+            self._resizing_col_idx = border_idx
+            self._resize_start_x = int(cx)
+            self._resize_start_w = self.results_col_widths[border_idx]
+
+    def _on_results_drag(self, event):
+        if self._resizing_col_idx is None:
+            return
+        cx = int(self.results_canvas.canvasx(event.x))
+        new_w = max(38, self._resize_start_w + (cx - self._resize_start_x))
+        self.results_col_widths[self._resizing_col_idx] = new_w
+        self._redraw_results_canvas()
+
+    def _on_results_release(self, _event):
+        self._resizing_col_idx = None
+
+    def _on_results_double_click(self, event):
+        """Double-clicking a column border or column header expands/toggles the column like in Excel."""
+        cx = self.results_canvas.canvasx(event.x)
+        border_idx = self._find_border_col_index(cx, tolerance=8)
+        if border_idx is not None:
+            self.auto_expand_results_column(border_idx)
+            return
+        col_idx = self._find_clicked_col_index(cx)
+        if col_idx is not None:
+            self.auto_expand_results_column(col_idx)
 
     # ------------------------------------------------------------------
     # Circular Spinner Animation & Service Card Updates
@@ -1342,7 +1650,7 @@ class BarcoIDApp:
 
         col_w = max(160, int(160 * self.dpi_scale))
         for col in headers:
-            self.meta_tree.column(col, width=col_w, minwidth=110, anchor="w")
+            self.meta_tree.column(col, width=col_w, minwidth=60, anchor="w")
             self.meta_tree.heading(
                 col,
                 text=col,

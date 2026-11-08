@@ -212,6 +212,18 @@ def test_gui_interactive_column_picker():
         assert app.current_step == 3
         assert len(app.results_canvas.find_all()) > 20
 
+        # Verify default widths: Sample_ID (idx 0) and Consensus_Species (idx 8) are expanded,
+        # while intermediate column BOLD_Taxon (idx 3) starts squished, and double-click expands it
+        assert app.results_col_widths[0] >= 180
+        assert app.results_col_widths[8] >= 180
+        squished_bold_w = app.results_col_widths[3]
+        assert squished_bold_w < 110
+        app.auto_expand_results_column(3)
+        assert app.results_col_widths[3] > squished_bold_w
+        # Double-clicking an already expanded intermediate column squishes it back
+        app.auto_expand_results_column(3)
+        assert app.results_col_widths[3] == squished_bold_w
+
         # Verify Ctrl+Shift+D diagnostic terminal toggle and bug report builder
         assert app.terminal_win is None
         app.toggle_terminal_window()
