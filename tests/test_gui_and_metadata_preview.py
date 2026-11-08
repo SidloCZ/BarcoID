@@ -17,9 +17,10 @@ from barcoid.pipeline import BarcoIDPipeline
 
 
 def test_palette_and_4streams_svg():
-    """Verifies the 2-color minimalist palette (#4C9E45 + neutral) and 4-streams SVG icon."""
+    """Verifies the 2-color minimalist palette (#4C9E45 + #111111/#FFFFFF) and 4-streams SVG icon."""
     assert PALETTE["primary"] == "#4C9E45"
-    assert PALETTE["text_dark"] == "#1F2421"
+    assert PALETTE["text_dark"] == "#111111"
+    assert PALETTE["bg_canvas"] == "#FFFFFF"
     assert SVG_ICON_PATH.exists()
     svg_content = SVG_ICON_PATH.read_text(encoding="utf-8")
     assert "<svg" in svg_content
@@ -165,6 +166,21 @@ def test_gui_interactive_column_picker():
         app.show_step(2)
         assert app.current_step == 2
         assert "field_genus" in app.run_overview_var.get()
+
+        # Verify active circle spinner animation and Done state on stream cards
+        app._set_service_states(ncbi="Active", bold="Done")
+        app._animate_spinners()
+        assert len(app.service_spinners["ncbi"].find_all()) >= 2
+        assert len(app.service_spinners["bold"].find_all()) >= 2
+
+        # Verify Ctrl+Shift+D diagnostic terminal toggle and bug report builder
+        assert app.terminal_win is None
+        app.toggle_terminal_window()
+        assert app.terminal_win is not None
+        diag_text = app.build_diagnostic_report_text(include_api_ping=False)
+        assert "BarcoID Diagnostic & Bug Report" in diag_text
+        app.toggle_terminal_window()
+        assert app.terminal_win is None
     finally:
         root.destroy()
 

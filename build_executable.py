@@ -18,6 +18,24 @@ def build_executable(windowed: bool = True, name: str = "BarcoID") -> int:
     svg_asset = root_dir / "src" / "barcoid" / "assets" / "logo_4streams.svg"
     sep = ";" if sys.platform.startswith("win") else ":"
 
+    ext = ".exe" if sys.platform.startswith("win") else ""
+    out_path = root_dir / "dist" / f"{name}{ext}"
+    old_path = root_dir / "dist" / f"{name}.old{ext}"
+    if old_path.exists():
+        try:
+            old_path.unlink()
+        except OSError:
+            pass
+    if out_path.exists():
+        try:
+            out_path.unlink()
+        except PermissionError:
+            # Windows allows renaming a currently running executable so the new build can be written
+            try:
+                out_path.rename(old_path)
+            except OSError:
+                pass
+
     cmd = [
         sys.executable,
         "-m",

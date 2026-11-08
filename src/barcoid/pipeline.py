@@ -1,8 +1,9 @@
 """
-Master pipeline orchestrator for BarcoID.
+Master pipeline orchestrator for BarcoID with concurrent multi-engine execution.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -44,8 +45,9 @@ class BarcoIDPipeline:
         sample_col: str = "sample_id",
         morpho_col: str = "field_morphospecies",
         progress_callback: Optional[Callable[[str, float], None]] = None,
+        service_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
-        """Executes the multi-source pipeline end-to-end."""
+        """Executes the multi-source pipeline end-to-end with parallel engine queries."""
 
         def _notify(stage: str, pct: float):
             if progress_callback:
@@ -54,12 +56,21 @@ class BarcoIDPipeline:
                 except Exception:
                     pass
 
-        _notify("Step 1/5: Ingesting FASTA sequences and morphological metadata...", 10.0)
+        def _srv(name: str, status: str):
+            if service_callback:
+                try:
+                    service_callback(name, status)
+                except Exception:
+                    pass
+
+        _srv("morpho", "Active")
+        _notify("Ingesting FASTA sequences and morphological metadata...", 10.0)
 
         # 1. Ingest sequences
         sequences = FastaParser.read_sequences(fasta_path, max_sequences=self.config.max_sequences)
         if not sequences:
             logger.warning("No sequences found in input file.")
+            _srv("morpho", "Done")
             _notify("No sequences found in input file.", 100.0)
             return []
 
@@ -72,6 +83,29 @@ class BarcoIDPipeline:
                 morpho_col=morpho_col,
                 custom_prefix_map=self.config.custom_prefix_map,
             )
+
+        # Pre-parse headers & metadata so morphological priors are ready immediately
+        parsed_by_hdr: Dict[str, Dict[str, Any]] = {}
+        initial_gbif_names: List[str] = []
+        for hdr, _ in sequences:
+            p_meta = self.header_parser.parse_header(hdr)
+            p_meta.update(self.ont_parser.parse_stats(hdr))
+            if meta_parser:
+                ext_meta = (
+                    meta_parser.get_metadata(p_meta["sample_id"])
+                    or meta_parser.get_metadata(p_meta["clean_id"])
+                    or meta_parser.get_metadata(p_meta.get("voucher_code", ""))
+                )
+                if ext_meta:
+                    if ext_meta.get("field_morpho_code"):
+                        p_meta["field_morpho_code"] = ext_meta["field_morpho_code"]
+                    if ext_meta.get("field_inferred_genus"):
+                        p_meta["field_inferred_genus"] = ext_meta["field_inferred_genus"]
+            parsed_by_hdr[hdr] = p_meta
+            if p_meta.get("field_inferred_genus"):
+                initial_gbif_names.append(p_meta["field_inferred_genus"])
+
+        _srv("morpho", "Done")
 
         # 3. Workload safety audit
         uncached_bold = sum(1 for _, seq in sequences if not self.cache_manager.get_bold(seq))
@@ -90,6 +124,9 @@ class BarcoIDPipeline:
                 f"[Dry Run Summary] Total sequences: {len(sequences)}, "
                 f"Uncached BOLD: {uncached_bold}, Uncached NCBI: {uncached_ncbi}"
             )
+            _srv("bold", "Done")
+            _srv("ncbi", "Done")
+            _srv("gbif", "Done")
             _notify(
                 f"Dry run complete: {len(sequences)} sequence(s) inspected "
                 f"({uncached_bold} uncached BOLD, {uncached_ncbi} uncached NCBI).",
@@ -97,58 +134,71 @@ class BarcoIDPipeline:
             )
             return []
 
-        # 4. Engine executions
-        _notify("Step 2/5: Querying BOLD Systems v5 Identification Engine...", 25.0)
-        bold_engine = BoldEngine(self.config, self.cache_manager)
-        bold_results = bold_engine.identify_sequences(sequences)
+        # 4. Run BOLD, NCBI, and GBIF concurrently in parallel threads
+        _srv("bold", "Active")
+        _srv("ncbi", "Active")
+        _srv("gbif", "Active")
+        _notify(
+            f"Running BOLD ({len(sequences)} seqs), NCBI BLAST ({len(sequences)} seqs), and GBIF in parallel...",
+            35.0,
+        )
 
-        _notify("Step 3/5: Querying NCBI GenBank BLAST...", 55.0)
-        if self.config.local_blast_db and Path(self.config.local_blast_db).exists():
-            blast_engine = LocalBlastEngine(self.config, self.cache_manager)
-            ncbi_results = blast_engine.identify_sequences(sequences)
-        else:
-            remote_engine = RemoteBlastEngine(self.config, self.cache_manager)
-            ncbi_results = remote_engine.identify_sequences(sequences)
-
-        # 5. Extract candidate names for GBIF standardization
-        _notify("Step 4/5: Harmonizing taxonomy with GBIF Backbone...", 80.0)
         gbif_engine = GbifEngine(self.config, self.cache_manager)
+
+        def _run_bold() -> Dict[str, Dict[str, Any]]:
+            bold_engine = BoldEngine(self.config, self.cache_manager)
+            res = bold_engine.identify_sequences(sequences)
+            _srv("bold", "Done")
+            return res
+
+        def _run_ncbi() -> Dict[str, Dict[str, Any]]:
+            if self.config.local_blast_db and Path(self.config.local_blast_db).exists():
+                blast_engine = LocalBlastEngine(self.config, self.cache_manager)
+                res = blast_engine.identify_sequences(sequences)
+            else:
+                remote_engine = RemoteBlastEngine(self.config, self.cache_manager)
+                res = remote_engine.identify_sequences(sequences)
+            _srv("ncbi", "Done")
+            return res
+
+        def _run_initial_gbif() -> Dict[str, Dict[str, Any]]:
+            if not initial_gbif_names:
+                return {}
+            return gbif_engine.match_batch(list(set(initial_gbif_names)))
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            fut_bold = pool.submit(_run_bold)
+            fut_ncbi = pool.submit(_run_ncbi)
+            fut_gbif_init = pool.submit(_run_initial_gbif)
+
+            gbif_results = fut_gbif_init.result()
+            bold_results = fut_bold.result()
+            _notify("BOLD finished; awaiting remaining parallel streams...", 65.0)
+            ncbi_results = fut_ncbi.result()
+
+        # 5. Resolve any newly discovered candidate names from BOLD and NCBI hits via GBIF
+        _notify("Finalizing GBIF Taxonomic Backbone harmonization...", 82.0)
         candidate_names = []
         for hdr, _ in sequences:
             b_tax = bold_results.get(hdr, {}).get("top_species") or bold_results.get(hdr, {}).get("top_genus")
             n_tax = ncbi_results.get(hdr, {}).get("top_species") or ncbi_results.get(hdr, {}).get("top_genus")
-            if b_tax:
+            if b_tax and b_tax not in gbif_results:
                 candidate_names.append(b_tax)
-            if n_tax:
+            if n_tax and n_tax not in gbif_results:
                 candidate_names.append(n_tax)
 
-        gbif_results = gbif_engine.match_batch(candidate_names)
+        if candidate_names:
+            gbif_results.update(gbif_engine.match_batch(list(set(candidate_names))))
+        _srv("gbif", "Done")
 
         # 6. Synthesize metadata, evaluate concordance, and run QC
-        _notify("Step 5/5: Computing Concordance Matrix & exporting reports...", 90.0)
+        _notify("Computing Concordance Matrix & exporting reports...", 92.0)
         rows: List[Dict[str, Any]] = []
         for hdr, _ in sequences:
-            parsed_meta = self.header_parser.parse_header(hdr)
-            ont_stats = self.ont_parser.parse_stats(hdr)
-            parsed_meta.update(ont_stats)
-
-            # Override/complement with external metadata if available
-            if meta_parser:
-                ext_meta = (
-                    meta_parser.get_metadata(parsed_meta["sample_id"])
-                    or meta_parser.get_metadata(parsed_meta["clean_id"])
-                    or meta_parser.get_metadata(parsed_meta.get("voucher_code", ""))
-                )
-                if ext_meta:
-                    if ext_meta.get("field_morpho_code"):
-                        parsed_meta["field_morpho_code"] = ext_meta["field_morpho_code"]
-                    if ext_meta.get("field_inferred_genus"):
-                        parsed_meta["field_inferred_genus"] = ext_meta["field_inferred_genus"]
-
+            parsed_meta = parsed_by_hdr[hdr]
             b_res = bold_results.get(hdr, {})
             n_res = ncbi_results.get(hdr, {})
 
-            # Match top candidate name in GBIF results
             target_name = b_res.get("top_species") or n_res.get("top_species") or b_res.get("top_genus") or ""
             g_res = gbif_results.get(target_name, {})
 
