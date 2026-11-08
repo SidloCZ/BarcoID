@@ -16,6 +16,7 @@ def build_executable(windowed: bool = True, name: str = "BarcoID") -> int:
     root_dir = Path(__file__).resolve().parent
     entry_script = root_dir / "src" / "barcoid" / "cli.py"
     assets_dir = root_dir / "src" / "barcoid" / "assets"
+    ico_asset = assets_dir / "app_icon.ico"
     sep = ";" if sys.platform.startswith("win") else ":"
 
     ext = ".exe" if sys.platform.startswith("win") else ""
@@ -47,6 +48,8 @@ def build_executable(windowed: bool = True, name: str = "BarcoID") -> int:
         name,
         "--paths",
         str(root_dir / "src"),
+        "--icon",
+        str(ico_asset),
         "--add-data",
         f"{assets_dir}{sep}barcoid/assets",
         "--hidden-import",

@@ -12,7 +12,9 @@ from openpyxl import Workbook
 from barcoid.cli import main
 from barcoid.config import BarcoIDConfig
 from barcoid.gui import (
+    ICO_ICON_PATH,
     PALETTE,
+    PNG_ICON_PATH,
     SVG_ARROW_LEFT_PATH,
     SVG_ARROW_RIGHT_PATH,
     SVG_CHECK_CIRCLE_PATH,
@@ -36,10 +38,13 @@ def test_single_cell_highlighting_rules():
 
 
 def test_palette_and_4streams_svg():
-    """Verifies the 2-color minimalist palette (#4C9E45 + #111111/#FFFFFF) and SVG icons."""
+    """Verifies the 2-color minimalist palette, logo.svg, and icon assets."""
     assert PALETTE["primary"] == "#4C9E45"
     assert PALETTE["text_dark"] == "#111111"
     assert PALETTE["bg_canvas"] == "#FFFFFF"
+    assert SVG_ICON_PATH.exists()
+    assert PNG_ICON_PATH.exists()
+    assert ICO_ICON_PATH.exists()
     for svg_path in (
         SVG_ICON_PATH,
         SVG_ARROW_RIGHT_PATH,

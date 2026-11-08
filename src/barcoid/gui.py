@@ -57,7 +57,10 @@ FONT_HEADING = ("Segoe UI", 11, "bold")
 FONT_BODY = ("Segoe UI", 11)
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
-SVG_ICON_PATH = ASSETS_DIR / "logo_4streams.svg"
+SVG_ICON_PATH = ASSETS_DIR / "logo.svg"
+PNG_ICON_PATH = ASSETS_DIR / "logo_48.png"
+PNG_ICON_HI_PATH = ASSETS_DIR / "logo_96.png"
+ICO_ICON_PATH = ASSETS_DIR / "app_icon.ico"
 SVG_ARROW_RIGHT_PATH = ASSETS_DIR / "arrow_right.svg"
 SVG_ARROW_LEFT_PATH = ASSETS_DIR / "arrow_left.svg"
 SVG_CHECK_CIRCLE_PATH = ASSETS_DIR / "check_circle.svg"
@@ -630,11 +633,20 @@ class BarcoIDApp:
         self.root.geometry("1120x760")
         self.root.minsize(760, 560)
         self.root.configure(bg=PALETTE["bg_canvas"])
+        self._apply_app_icon()
         self._maximize_window()
 
         # Font measurement helpers for cell truncation & Excel-style auto-fit
         self.tk_font_body = tkfont.Font(root=self.root, font=FONT_BODY)
         self.tk_font_heading = tkfont.Font(root=self.root, font=FONT_HEADING)
+
+        # Logo image for brand header (48x48 or 96x96 on high-DPI)
+        self.logo_photo: Optional[tk.PhotoImage] = None
+        if PNG_ICON_PATH.exists():
+            try:
+                self.logo_photo = tk.PhotoImage(file=str(PNG_ICON_PATH))
+            except Exception:
+                self.logo_photo = None
 
         # Pre-render anti-aliased SVG icons (arrows, check-circle, and spinner frames)
         self._init_svg_icons()
@@ -704,6 +716,18 @@ class BarcoIDApp:
         self.show_step(0)
         self._poll_queues()
         self._animate_spinners()
+
+    def _apply_app_icon(self):
+        """Sets the application window icon from app_icon.ico or logo_48.png."""
+        try:
+            if ICO_ICON_PATH.exists() and sys.platform.startswith("win"):
+                self.root.iconbitmap(str(ICO_ICON_PATH))
+            elif PNG_ICON_PATH.exists():
+                icon_img = tk.PhotoImage(file=str(PNG_ICON_PATH))
+                self.root.iconphoto(True, icon_img)
+                self._app_icon_ref = icon_img
+        except Exception:
+            pass
 
     def _maximize_window(self):
         """Maximizes the application window on startup while keeping standard window controls."""
@@ -874,11 +898,17 @@ class BarcoIDApp:
         brand_frame = tk.Frame(top_bar, bg=PALETTE["card_inner"])
         brand_frame.pack(side="left")
 
-        logo_canvas = tk.Canvas(
-            brand_frame, width=48, height=48, bg=PALETTE["card_inner"], highlightthickness=0
-        )
-        logo_canvas.pack(side="left", padx=(0, 10))
-        self._draw_4streams_icon(logo_canvas)
+        if self.logo_photo:
+            logo_lbl = tk.Label(
+                brand_frame, image=self.logo_photo, bg=PALETTE["card_inner"], highlightthickness=0
+            )
+            logo_lbl.pack(side="left", padx=(0, 10))
+        else:
+            logo_canvas = tk.Canvas(
+                brand_frame, width=48, height=48, bg=PALETTE["card_inner"], highlightthickness=0
+            )
+            logo_canvas.pack(side="left", padx=(0, 10))
+            self._draw_4streams_icon(logo_canvas)
 
         tk.Label(
             brand_frame,
