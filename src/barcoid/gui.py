@@ -64,6 +64,8 @@ ICO_ICON_PATH = ASSETS_DIR / "app_icon.ico"
 SVG_ARROW_RIGHT_PATH = ASSETS_DIR / "arrow_right.svg"
 SVG_ARROW_LEFT_PATH = ASSETS_DIR / "arrow_left.svg"
 SVG_CHECK_CIRCLE_PATH = ASSETS_DIR / "check_circle.svg"
+SVG_HELP_PATH = ASSETS_DIR / "help.svg"
+GUIDE_DIR = ASSETS_DIR / "guide_screenshots"
 
 RESULTS_COLUMNS = [
     "Sample_ID",
@@ -234,6 +236,56 @@ def render_radio_photo(selected: bool, size: int) -> tk.PhotoImage:
     return tk.PhotoImage(data=_rgba_to_png(size, size, buf))
 
 
+def render_help_photo(size: int, color_hex: str = "#444444") -> tk.PhotoImage:
+    """
+    Renders an anti-aliased dark gray '?' in a circular ring with full RGBA transparency.
+    """
+    fg = _hex_to_rgb(color_hex)
+    scale = size / 24.0
+    half_stroke = 1.35 * scale
+    cx = size / 2.0
+    cy = size / 2.0
+    r_outer = size * 0.44
+
+    segments = [
+        (8.5 * scale, 9.0 * scale, 9.8 * scale, 7.5 * scale),
+        (9.8 * scale, 7.5 * scale, 12.0 * scale, 6.8 * scale),
+        (12.0 * scale, 6.8 * scale, 14.2 * scale, 7.5 * scale),
+        (14.2 * scale, 7.5 * scale, 15.5 * scale, 9.0 * scale),
+        (15.5 * scale, 9.0 * scale, 14.2 * scale, 11.2 * scale),
+        (14.2 * scale, 11.2 * scale, 12.0 * scale, 12.8 * scale),
+        (12.0 * scale, 12.8 * scale, 12.0 * scale, 14.8 * scale),
+    ]
+    dot_cx = 12.0 * scale
+    dot_cy = 17.5 * scale
+    dot_r = 1.3 * scale
+
+    buf = bytearray(size * size * 4)
+    for y in range(size):
+        py = y + 0.5
+        for x in range(size):
+            px = x + 0.5
+            d_center = math.hypot(px - cx, py - cy)
+            ring_dist = abs(d_center - r_outer)
+            ring_alpha = max(0.0, min(1.0, (half_stroke + 0.5) - ring_dist))
+
+            q_dist = min(_dist_to_segment(px, py, *seg) for seg in segments)
+            q_alpha = max(0.0, min(1.0, (half_stroke + 0.5) - q_dist))
+
+            dot_dist = math.hypot(px - dot_cx, py - dot_cy)
+            dot_alpha = max(0.0, min(1.0, (dot_r + 0.5) - dot_dist))
+
+            final_alpha = max(ring_alpha, q_alpha, dot_alpha)
+            if final_alpha > 0.0:
+                idx = (y * size + x) * 4
+                buf[idx] = fg[0]
+                buf[idx + 1] = fg[1]
+                buf[idx + 2] = fg[2]
+                buf[idx + 3] = int(final_alpha * 255 + 0.5)
+
+    return tk.PhotoImage(data=_rgba_to_png(size, size, buf))
+
+
 def render_checkbox_photo(checked: bool, size: int) -> tk.PhotoImage:
     """
     Renders an elegant, modern, anti-aliased checkbox indicator with true alpha transparency.
@@ -399,8 +451,14 @@ def get_cell_highlight(col_name: str, value: str) -> Tuple[str, str, bool]:
 
 
 def enable_high_dpi():
-    """Enables native Per-Monitor High-DPI rendering on Windows so fullscreen text is crisp."""
+    """Enables native Per-Monitor High-DPI rendering and Windows taskbar process identity."""
     if sys.platform.startswith("win"):
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "barcoid.dna.validator.0.1.0"
+            )
+        except Exception:
+            pass
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
         except Exception:
@@ -708,6 +766,7 @@ class BarcoIDApp:
         self.ui_queue: "queue.Queue[Tuple[str, Any]]" = queue.Queue()
         self.terminal_win: Optional[tk.Toplevel] = None
         self.terminal_text: Optional[tk.Text] = None
+        self.guide_win: Optional[tk.Toplevel] = None
 
         self._configure_styles()
         self._build_layout()
@@ -718,14 +777,37 @@ class BarcoIDApp:
         self._animate_spinners()
 
     def _apply_app_icon(self):
-        """Sets the application window icon from app_icon.ico or logo_48.png."""
+        """Sets the application window icon using multi-resolution crisp PhotoImages (iconphoto)
+        and falls back to ICO / logo_48.png."""
+        self._app_icon_refs: List[tk.PhotoImage] = []
         try:
-            if ICO_ICON_PATH.exists() and sys.platform.startswith("win"):
-                self.root.iconbitmap(str(ICO_ICON_PATH))
-            elif PNG_ICON_PATH.exists():
+            # Multi-resolution iconphoto gives crystal-clear icons in both the
+            # window title bar (16x16 / 20x20 / 24x24) and taskbar / Alt-Tab (32x32 / 48x48 / 64x64)
+            # without blurry GDI nearest-neighbor downscaling.
+            sizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+            photos: List[tk.PhotoImage] = []
+            for sz in sizes:
+                icon_path = ASSETS_DIR / f"icon_{sz}.png"
+                if icon_path.exists():
+                    try:
+                        photos.append(tk.PhotoImage(file=str(icon_path)))
+                    except Exception:
+                        pass
+            if photos:
+                self.root.iconphoto(True, *photos)
+                self._app_icon_refs = photos
+                return
+        except Exception:
+            pass
+
+        # Fallback to single PNG or ICO if multi-resolution PNGs are not present
+        try:
+            if PNG_ICON_PATH.exists():
                 icon_img = tk.PhotoImage(file=str(PNG_ICON_PATH))
                 self.root.iconphoto(True, icon_img)
-                self._app_icon_ref = icon_img
+                self._app_icon_refs = [icon_img]
+            elif ICO_ICON_PATH.exists() and sys.platform.startswith("win"):
+                self.root.iconbitmap(str(ICO_ICON_PATH))
         except Exception:
             pass
 
@@ -755,6 +837,7 @@ class BarcoIDApp:
         arrow_sz = max(24, int(24 * self.dpi_scale))
         badge_sz = max(22, int(22 * self.dpi_scale))
         radio_sz = max(20, int(20 * self.dpi_scale))
+        help_sz = max(24, int(24 * self.dpi_scale))
         self.badge_px = badge_sz
 
         self.icon_arrow_right = render_arrow_photo("right", arrow_sz, "#FFFFFF")
@@ -763,6 +846,7 @@ class BarcoIDApp:
         self.icon_radio_selected = render_radio_photo(True, radio_sz)
         self.icon_check_unselected = render_checkbox_photo(False, radio_sz)
         self.icon_check_selected = render_checkbox_photo(True, radio_sz)
+        self.icon_help = render_help_photo(help_sz, "#444444")
         self.icon_check_done = render_check_circle_photo(
             badge_sz, PALETTE["primary_tint"], PALETTE["primary"], "#FFFFFF"
         )
@@ -921,6 +1005,22 @@ class BarcoIDApp:
         # Click-through Wizard Step Tabs (4 Steps)
         stepper_frame = tk.Frame(top_bar, bg=PALETTE["card_inner"])
         stepper_frame.pack(side="right")
+
+        # Dark Gray '?' SVG Help Button positioned immediately to the left of Step 1 button
+        self.help_btn = tk.Button(
+            stepper_frame,
+            image=self.icon_help,
+            command=self.open_guide_window,
+            bg=PALETTE["card_inner"],
+            activebackground=PALETTE["primary_tint"],
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+            padx=4,
+            pady=4,
+        )
+        self.help_btn.pack(side="left", padx=(0, 10))
 
         self.step_buttons: List[tk.Button] = []
         step_titles = [
@@ -1929,6 +2029,137 @@ class BarcoIDApp:
             self.terminal_text = None
             return
         self.open_terminal_window()
+
+    def open_guide_window(self):
+        """Opens a clean, step-by-step user guide dialog with screenshots and clear workflow instructions."""
+        if self.guide_win and self.guide_win.winfo_exists():
+            self.guide_win.lift()
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("BarcoID — Step-by-Step User Guide")
+        win.geometry("860x680")
+        win.minsize(680, 500)
+        win.configure(bg=PALETTE["bg_canvas"])
+        self.guide_win = win
+
+        # Window icon is automatically inherited from root.iconphoto(True, ...)
+        if getattr(self, "_app_icon_refs", None):
+            try:
+                win.iconphoto(True, *self._app_icon_refs)
+            except Exception:
+                pass
+
+        # Top title banner
+        banner = tk.Frame(win, bg=PALETTE["primary_tint"], highlightbackground=PALETTE["primary"], highlightthickness=1, padx=20, pady=12)
+        banner.pack(fill="x", padx=16, pady=14)
+
+        tk.Label(
+            banner, text="BarcoID Step-by-Step Guide", font=FONT_TITLE,
+            fg=PALETTE["text_dark"], bg=PALETTE["primary_tint"]
+        ).pack(side="left")
+
+        tk.Label(
+            banner, text="Quick 4-step workflow overview with visual guides", font=FONT_BODY,
+            fg=PALETTE["text_dark"], bg=PALETTE["primary_tint"]
+        ).pack(side="right")
+
+        # Scrollable container for steps
+        container = tk.Frame(win, bg=PALETTE["bg_canvas"])
+        container.pack(fill="both", expand=True, padx=16, pady=(0, 14))
+
+        canvas = tk.Canvas(container, bg=PALETTE["bg_canvas"], highlightthickness=0)
+        vsb = ModernScrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+
+        scrollable_frame = tk.Frame(canvas, bg=PALETTE["bg_canvas"])
+        window_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        def _on_frame_configure(_event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(window_id, width=event.width)
+
+        scrollable_frame.bind("<Configure>", _on_frame_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        guide_steps = [
+            (
+                "Step 1: Sequences & Parameters",
+                "1. Click 'Browse FASTA' to select your DNA barcodes file (*.fasta, *.fas, *.fa, *.fna).\n"
+                "2. Choose the Target Taxon (e.g. Formicidae for ants, Insecta, or any custom NCBI/BOLD filter).\n"
+                "3. Optional: Specify max sequences or enable Dry Run / Force Refresh.\n"
+                "4. Output folder automatically defaults to `<fasta_folder>/results`.",
+                GUIDE_DIR / "step1.png",
+            ),
+            (
+                "Step 2: Metadata Viewer & Column Picker",
+                "1. Click 'Choose Metadata File' to load voucher determinations (.csv, .tsv, or .xlsx).\n"
+                "2. The interactive table previews your specimen records. Simply click any column header\n"
+                "   to bind the Morphospecies or Sample ID column instantly.\n"
+                "3. Morphological determination codes automatically infer the genus prior (e.g. PHEI01 -> Pheidole).",
+                GUIDE_DIR / "step2.png",
+            ),
+            (
+                "Step 3: Multi-Source Resolution & Run",
+                "1. Click 'Run Identification' to launch concurrent validation across all 3 remote engines:\n"
+                "   • BOLD Systems v5 API (COI barcode match engine)\n"
+                "   • NCBI GenBank QBLAST (Megablast with stalled RID recovery)\n"
+                "   • GBIF Taxonomic Backbone (canonical nomenclature match)\n"
+                "2. Live rotating circular spinners display real-time query progress and done badges.",
+                GUIDE_DIR / "step3.png",
+            ),
+            (
+                "Step 4: Concordance Summary & Results",
+                "1. Review the 5 segmented Concordance metric cards:\n"
+                "   • Concordant (green): All engines match the morphological prior.\n"
+                "   • New Assignment: Identification established for undetermined specimen.\n"
+                "   • Mismatch Alert (red): Morphospecies conflicts with database hits.\n"
+                "2. Interactive Results Table: Drag column borders or double-click to expand/squish like Excel.\n"
+                "3. Click 'Open Excel Report' for the styled multi-tab workbook or 'Open Results Folder'.",
+                GUIDE_DIR / "step4.png",
+            ),
+        ]
+
+        # Keep PhotoImage references alive
+        win._guide_photos = []
+
+        for title, desc, img_path in guide_steps:
+            card = tk.Frame(
+                scrollable_frame,
+                bg=PALETTE["card_inner"],
+                highlightbackground=PALETTE["border"],
+                highlightthickness=1,
+                padx=18,
+                pady=14,
+            )
+            card.pack(fill="x", pady=(0, 16))
+
+            tk.Label(
+                card, text=title, font=FONT_TITLE, fg=PALETTE["primary"], bg=PALETTE["card_inner"], anchor="w"
+            ).pack(fill="x", pady=(0, 6))
+
+            tk.Label(
+                card, text=desc, font=FONT_BODY, fg=PALETTE["text_dark"], bg=PALETTE["card_inner"], justify="left", anchor="w"
+            ).pack(fill="x", pady=(0, 10))
+
+            if img_path.exists():
+                try:
+                    photo = tk.PhotoImage(file=str(img_path))
+                    win._guide_photos.append(photo)
+                    img_lbl = tk.Label(card, image=photo, bg=PALETTE["card_inner"], relief="solid", bd=1)
+                    img_lbl.pack(anchor="center", pady=(0, 6))
+                except Exception:
+                    pass
+
+        # Close button in bottom bar
+        btm = tk.Frame(win, bg=PALETTE["bg_canvas"], padx=16, pady=8)
+        btm.pack(fill="x")
+        self._make_button(btm, "Close Guide", win.destroy, primary=True).pack(side="right")
 
     def open_terminal_window(self):
         """Opens the Diagnostic Terminal & Bug Report window."""

@@ -2,7 +2,7 @@
 BarcoID: Multi-Source DNA Barcode Taxonomic Identifier, Cross-Referencer & QC Auditor.
 """
 
-__version__ = "0.1.0.dev1"
+__version__ = "0.1.0"
 __author__ = "Jakub Šidlík"
 
 from barcoid.config import BarcoIDConfig

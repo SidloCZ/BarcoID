@@ -209,6 +209,9 @@ def test_gui_interactive_column_picker():
         assert app.icon_radio_selected is not None
         assert app.icon_check_unselected is not None
         assert app.icon_check_selected is not None
+        assert app.icon_help is not None
+        assert app.help_btn is not None
+        assert len(app._app_icon_refs) >= 1
 
         # Step 4: Results table with single-cell highlighting & segmented summary cards
         assert len(app.step_frames) == 4
@@ -272,6 +275,14 @@ def test_gui_interactive_column_picker():
         assert "BarcoID Diagnostic & Bug Report" in diag_text
         app.toggle_terminal_window()
         assert app.terminal_win is None
+
+        # Verify Step-by-Step User Guide Window opens and renders
+        assert app.guide_win is None
+        app.open_guide_window()
+        assert app.guide_win is not None
+        assert len(app.guide_win._guide_photos) == 4
+        app.guide_win.destroy()
+        app.guide_win = None
     finally:
         root.destroy()
 
