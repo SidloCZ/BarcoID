@@ -19,9 +19,9 @@ DNA barcoding (COI, rbcL, 16S, ITS) frequently relies on single-source taxonomic
 ### The Solution
 A unified, standalone CLI and Python library that automatically cross-references recovered DNA barcodes against **four independent evidence streams**:
 1. **Morphological Prior:** Field voucher metadata and preliminary morphological assignments (from FASTA deflines or external metadata spreadsheets).
-2. **BOLD Systems v5:** Official REST API batch submission, polling, percent identity, and BIN assignment.
+2. **BOLD Systems v5:** Official REST API batch submission, polling, percent identity, and BIN assignment directly against BOLD's curated barcode reference library.
 3. **NCBI GenBank BLAST:** Resilient QBLAST (or high-throughput local `blastn`) against nucleotide databases with taxon-specific filters.
-4. **GBIF Taxonomic Backbone:** Verification of taxonomic status (accepted vs. synonym), hierarchy harmonization, and canonical names.
+4. **GBIF Taxonomic Backbone:** Verification of taxonomic status (accepted vs. synonym), hierarchy harmonization, and canonical names via `api.gbif.org/v1/species/match`. *(Note: While GBIF operates a web portal SeqID tool wrapping BLAST against external datasets, it offers no public batch REST API. BarcoID queries BOLD and NCBI directly for sequence alignment and utilizes GBIF as the nomenclatural authority to reconcile synonyms and taxonomic hierarchies across sources).*
 
 The engine computes an automated **Concordance Matrix** (`CONCORDANT`, `NEW_ASSIGNMENT`, `MISMATCH_ALERT`, `NO_MATCH`) and generates **QC Discrepancy Flags** (`OK`, `CONTAMINATION_SUSPECT`, `LOW_IDENTITY`, `DATABASE_CONFLICT`).
 

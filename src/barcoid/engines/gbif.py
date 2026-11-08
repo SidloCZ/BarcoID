@@ -1,5 +1,13 @@
 """
 GBIF Taxonomic Backbone Species Match client with deduplication, rate limiting, and disk caching.
+
+Note on GBIF & Sequence Data:
+While GBIF provides a web-based Sequence ID (SeqID) tool on its portal that wraps BLAST+
+against third-party databases (BOLD, MIDORI, UNITE), GBIF does not expose an official public
+batch sequence alignment REST API. In the BarcoID pipeline, primary sequence alignment is performed
+directly against BOLD Systems v5 and NCBI GenBank, while the GbifEngine utilizes GBIF's official
+Taxonomic Backbone API (`/v1/species/match`) as the nomenclatural authority to validate accepted
+taxa, resolve junior synonyms, and standardize classifications across databases.
 """
 
 import logging

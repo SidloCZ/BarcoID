@@ -12,9 +12,10 @@ Rather than relying on a single reference database, BarcoID triangulates four in
 
 - **Four-Way Taxonomic Triangulation:**
   1. **Morphological Prior:** Field voucher metadata and preliminary determinations (from FASTA deflines or external spreadsheets).
-  2. **BOLD Systems v5:** Official REST API batch submission, polling, percentage identity, and BIN assignment.
+  2. **BOLD Systems v5:** Official REST API batch submission, polling, percentage identity, and BIN assignment directly against BOLD's curated barcode reference library.
   3. **NCBI GenBank BLAST:** Resilient remote QBLAST (or high-throughput local `blastn`) against GenBank `nt` with taxon-specific Entrez queries.
-  4. **GBIF Taxonomic Backbone:** Verification of taxonomic status (accepted vs. synonym), hierarchy harmonization, and canonical names (`api.gbif.org`).
+  4. **GBIF Taxonomic Backbone:** Verification of taxonomic status (accepted vs. synonym), hierarchy harmonization, and canonical names (`api.gbif.org/v1/species/match`).
+     *(Note: While GBIF features an internal web tool for Sequence ID on its portal using third-party databases, it does not provide an official public batch sequence alignment REST API. BarcoID queries the primary sources—BOLD and NCBI GenBank—directly for DNA sequence alignment, utilizing GBIF's official Taxonomic Backbone API as the nomenclatural authority to standardize synonyms, homonyms, and hierarchical classifications across databases).*
 - **Automated Concordance Classification:**
   - `CONCORDANT`: Full genus agreement across morphological priors and sequence matches.
   - `NEW_ASSIGNMENT`: Unidentified field specimens (`__` or indeterminate) consistently resolved by BOLD and NCBI.
