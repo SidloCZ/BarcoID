@@ -11,15 +11,19 @@ from openpyxl import Workbook
 
 from barcoid.cli import main
 from barcoid.config import BarcoIDConfig
-from barcoid.gui import PALETTE, BarcoIDApp, build_config_from_inputs
+from barcoid.gui import PALETTE, SVG_ICON_PATH, BarcoIDApp, build_config_from_inputs
 from barcoid.parsers.metadata import MetadataParser
 from barcoid.pipeline import BarcoIDPipeline
 
 
-def test_palette_primary_green():
-    """Verifies that the BIEN-inspired light theme uses #4C9E45 as primary accent."""
+def test_palette_and_4streams_svg():
+    """Verifies the 2-color minimalist palette (#4C9E45 + neutral) and 4-streams SVG icon."""
     assert PALETTE["primary"] == "#4C9E45"
-    assert PALETTE["bg_canvas"] == "#FAF8F5"
+    assert PALETTE["text_dark"] == "#1F2421"
+    assert SVG_ICON_PATH.exists()
+    svg_content = SVG_ICON_PATH.read_text(encoding="utf-8")
+    assert "<svg" in svg_content
+    assert "#4C9E45" in svg_content
 
 
 def test_metadata_preview_csv_and_xlsx(tmp_path: Path):
@@ -139,6 +143,12 @@ def test_gui_interactive_column_picker():
 
     try:
         app = BarcoIDApp(root)
+        assert app.current_step == 0
+
+        # Click through wizard steps: Step 0 -> Step 1 -> Step 2
+        app.show_step(1)
+        assert app.current_step == 1
+
         sample_meta = Path(__file__).resolve().parent.parent / "examples" / "sample_metadata.csv"
         app.load_metadata_file(sample_meta)
 
@@ -151,6 +161,10 @@ def test_gui_interactive_column_picker():
         assert app.morpho_col_var.get() == "field_genus"
         heading_text = app.meta_tree.heading("field_genus", "text")
         assert "[MORPHOSPECIES]" in heading_text
+
+        app.show_step(2)
+        assert app.current_step == 2
+        assert "field_genus" in app.run_overview_var.get()
     finally:
         root.destroy()
 

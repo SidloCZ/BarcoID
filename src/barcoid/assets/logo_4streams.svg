@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <!-- Background subtle rounded square -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#EAF4E9" stroke="#4C9E45" stroke-width="2"/>
+  
+  <!-- Four independent evidence streams entering from the left, knotting in the center, and converging on the right -->
+  <!-- Stream 1 (Top outer) -->
+  <path d="M 10 14 C 24 14, 26 42, 36 32 C 42 26, 46 32, 54 32" stroke="#1F2421" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- Stream 2 (Upper inner - primary accent) -->
+  <path d="M 10 25 C 22 25, 26 18, 34 28 C 40 35, 45 32, 54 32" stroke="#4C9E45" stroke-width="3.6" stroke-linecap="round"/>
+  <!-- Stream 3 (Lower inner - primary accent) -->
+  <path d="M 10 39 C 22 39, 26 46, 34 36 C 40 29, 45 32, 54 32" stroke="#4C9E45" stroke-width="3.6" stroke-linecap="round"/>
+  <!-- Stream 4 (Bottom outer) -->
+  <path d="M 10 50 C 24 50, 26 22, 36 32 C 42 38, 46 32, 54 32" stroke="#1F2421" stroke-width="3.2" stroke-linecap="round"/>
+
+  <!-- Four origin nodes (left) -->
+  <circle cx="10" cy="14" r="3" fill="#1F2421"/>
+  <circle cx="10" cy="25" r="3" fill="#4C9E45"/>
+  <circle cx="10" cy="39" r="3" fill="#4C9E45"/>
+  <circle cx="10" cy="50" r="3" fill="#1F2421"/>
+
+  <!-- Central knot ring & unified consensus node (right) -->
+  <circle cx="34" cy="32" r="4.5" fill="#FFFFFF" stroke="#4C9E45" stroke-width="2.8"/>
+  <circle cx="54" cy="32" r="4.5" fill="#4C9E45"/>
+</svg>
+

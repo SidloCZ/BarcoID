@@ -15,6 +15,8 @@ from pathlib import Path
 def build_executable(windowed: bool = True, name: str = "BarcoID") -> int:
     root_dir = Path(__file__).resolve().parent
     entry_script = root_dir / "src" / "barcoid" / "cli.py"
+    svg_asset = root_dir / "src" / "barcoid" / "assets" / "logo_4streams.svg"
+    sep = ";" if sys.platform.startswith("win") else ":"
 
     cmd = [
         sys.executable,
@@ -27,6 +29,8 @@ def build_executable(windowed: bool = True, name: str = "BarcoID") -> int:
         name,
         "--paths",
         str(root_dir / "src"),
+        "--add-data",
+        f"{svg_asset}{sep}barcoid/assets",
         "--hidden-import",
         "barcoid.gui",
         "--hidden-import",
