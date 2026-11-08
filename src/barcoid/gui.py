@@ -1,16 +1,19 @@
 """
 Standalone Desktop GUI for BarcoID.
 Click-through 4-step wizard with native High-DPI text rendering, maximized startup,
-responsive layouts, custom ModernScrollbar sliders, interactive column resizing and
-Excel-style double-click auto-fit, single-cell highlighting on Concordance_Status
-and QC_Flag, and a hidden Diagnostics / Bug Report terminal triggered via Ctrl+Shift+D.
+responsive layouts, custom ModernScrollbar sliders, anti-aliased SVG icons (arrows,
+check-circle, spinner, and 4-streams logo), segmented Concordance Summary cards,
+interactive column resizing and Excel-style double-click auto-fit, single-cell
+highlighting on Concordance_Status and QC_Flag, and Ctrl+Shift+D Diagnostics.
 """
 
 import ctypes
 import logging
+import math
 import os
 import platform
 import queue
+import struct
 import subprocess
 import sys
 import threading
@@ -18,6 +21,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 import traceback
+import zlib
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -52,7 +56,11 @@ FONT_TITLE = ("Segoe UI", 16, "bold")
 FONT_HEADING = ("Segoe UI", 11, "bold")
 FONT_BODY = ("Segoe UI", 11)
 
-SVG_ICON_PATH = Path(__file__).resolve().parent / "assets" / "logo_4streams.svg"
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+SVG_ICON_PATH = ASSETS_DIR / "logo_4streams.svg"
+SVG_ARROW_RIGHT_PATH = ASSETS_DIR / "arrow_right.svg"
+SVG_ARROW_LEFT_PATH = ASSETS_DIR / "arrow_left.svg"
+SVG_CHECK_CIRCLE_PATH = ASSETS_DIR / "check_circle.svg"
 
 RESULTS_COLUMNS = [
     "Sample_ID",
@@ -68,13 +76,298 @@ RESULTS_COLUMNS = [
     "QC_Flag",
 ]
 
-# Columns fully expanded by default in Step 4; intermediate columns start squished
 PRIMARY_EXPANDED_COLUMNS = {
     "Sample_ID",
     "Consensus_Species",
     "Concordance_Status",
     "QC_Flag",
 }
+
+
+# ------------------------------------------------------------------
+# Sub-Pixel Anti-Aliased SVG / Vector Icon Rasterizer (PPM -> tk.PhotoImage)
+# Eliminates jagged Windows GDI polygon edges on circles, checkmarks, and arrows.
+# ------------------------------------------------------------------
+def _hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _dist_to_segment(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    dx = x2 - x1
+    dy = y2 - y1
+    len_sq = dx * dx + dy * dy
+    if len_sq == 0.0:
+        return math.hypot(px - x1, py - y1)
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / len_sq))
+    proj_x = x1 + t * dx
+    proj_y = y1 + t * dy
+    return math.hypot(px - proj_x, py - proj_y)
+
+
+def _blend_rgb(
+    bg: Tuple[int, int, int], fg: Tuple[int, int, int], alpha: float
+) -> Tuple[int, int, int]:
+    a = max(0.0, min(1.0, alpha))
+    return (
+        int(bg[0] * (1.0 - a) + fg[0] * a + 0.5),
+        int(bg[1] * (1.0 - a) + fg[1] * a + 0.5),
+        int(bg[2] * (1.0 - a) + fg[2] * a + 0.5),
+    )
+
+
+def _rgba_to_png(w: int, h: int, rgba_bytes: bytearray) -> bytes:
+    """Encodes raw RGBA bytes into a standard in-memory PNG binary payload."""
+    raw = bytearray()
+    row_bytes = w * 4
+    for y in range(h):
+        raw.append(0)  # filter type 0: None
+        raw.extend(rgba_bytes[y * row_bytes : (y + 1) * row_bytes])
+    compressed = zlib.compress(bytes(raw))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", compressed) + chunk(b"IEND", b"")
+
+
+def render_arrow_photo(
+    direction: str, size: int, color_hex: str
+) -> tk.PhotoImage:
+    """
+    Renders `assets/arrow_right.svg` or `assets/arrow_left.svg` with smooth analytical
+    anti-aliasing and full alpha transparency (RGBA PNG).
+    No background color baked in - seamlessly blends over normal, hover, and active states.
+    """
+    fg = _hex_to_rgb(color_hex)
+    scale = size / 24.0
+    half_stroke = 1.35 * scale
+
+    if direction == "right":
+        segments = [
+            (4.0 * scale, 12.0 * scale, 20.0 * scale, 12.0 * scale),
+            (12.5 * scale, 4.5 * scale, 20.0 * scale, 12.0 * scale),
+            (12.5 * scale, 19.5 * scale, 20.0 * scale, 12.0 * scale),
+        ]
+    else:
+        segments = [
+            (20.0 * scale, 12.0 * scale, 4.0 * scale, 12.0 * scale),
+            (11.5 * scale, 4.5 * scale, 4.0 * scale, 12.0 * scale),
+            (11.5 * scale, 19.5 * scale, 4.0 * scale, 12.0 * scale),
+        ]
+
+    buf = bytearray(size * size * 4)
+    for y in range(size):
+        py = y + 0.5
+        for x in range(size):
+            px = x + 0.5
+            d = min(_dist_to_segment(px, py, *seg) for seg in segments)
+            alpha = max(0.0, min(1.0, (half_stroke + 0.5) - d))
+            if alpha > 0.0:
+                idx = (y * size + x) * 4
+                buf[idx] = fg[0]
+                buf[idx + 1] = fg[1]
+                buf[idx + 2] = fg[2]
+                buf[idx + 3] = int(alpha * 255 + 0.5)
+
+    png_data = _rgba_to_png(size, size, buf)
+    return tk.PhotoImage(data=png_data)
+
+
+def render_radio_photo(selected: bool, size: int) -> tk.PhotoImage:
+    """
+    Renders an elegant, modern, anti-aliased radio button indicator with true alpha transparency.
+    - Unselected: Crisp neutral border (#111111) with clean transparent center.
+    - Selected: Smooth botanical green ring (#4C9E45) with vibrant green center dot (#4C9E45).
+    """
+    buf = bytearray(size * size * 4)
+    cx = size / 2.0
+    cy = size / 2.0
+    r_outer = size * 0.42
+    r_inner = size * 0.22
+
+    for y in range(size):
+        py = y + 0.5
+        for x in range(size):
+            px = x + 0.5
+            d = math.hypot(px - cx, py - cy)
+            border_alpha = max(0.0, min(1.0, (r_outer + 0.5) - d))
+            if border_alpha <= 0.0:
+                continue
+
+            idx = (y * size + x) * 4
+            if selected:
+                # Center dot (#4C9E45)
+                if d <= r_inner + 0.5:
+                    dot_a = max(0.0, min(1.0, (r_inner + 0.5) - d))
+                    buf[idx] = 76
+                    buf[idx + 1] = 158
+                    buf[idx + 2] = 69
+                    buf[idx + 3] = int(dot_a * 255 + 0.5)
+                # Outer ring (#4C9E45)
+                elif d >= r_outer - 1.8:
+                    ring_d = abs(d - (r_outer - 0.9))
+                    ring_a = max(0.0, min(1.0, (0.9 + 0.5) - ring_d))
+                    buf[idx] = 76
+                    buf[idx + 1] = 158
+                    buf[idx + 2] = 69
+                    buf[idx + 3] = int(ring_a * 255 + 0.5)
+            else:
+                # Unselected neutral border (#111111)
+                if d >= r_outer - 1.5:
+                    ring_d = abs(d - (r_outer - 0.75))
+                    ring_a = max(0.0, min(1.0, (0.75 + 0.5) - ring_d))
+                    buf[idx] = 17
+                    buf[idx + 1] = 17
+                    buf[idx + 2] = 17
+                    buf[idx + 3] = int(ring_a * 255 + 0.5)
+
+    return tk.PhotoImage(data=_rgba_to_png(size, size, buf))
+
+
+def render_checkbox_photo(checked: bool, size: int) -> tk.PhotoImage:
+    """
+    Renders an elegant, modern, anti-aliased checkbox indicator with true alpha transparency.
+    - Unchecked: Crisp neutral rounded square border (#111111).
+    - Checked: Filled botanical green rounded square (#4C9E45) with crisp white checkmark (#FFFFFF).
+    """
+    buf = bytearray(size * size * 4)
+    scale = size / 24.0
+    half_stroke = 1.35 * scale
+    check_segs = [
+        (6.5 * scale, 12.0 * scale, 10.2 * scale, 16.0 * scale),
+        (10.2 * scale, 16.0 * scale, 17.5 * scale, 8.0 * scale),
+    ]
+
+    box_pad = 2.8 * scale
+    box_r = 2.4 * scale
+
+    for y in range(size):
+        py = y + 0.5
+        for x in range(size):
+            px = x + 0.5
+            idx = (y * size + x) * 4
+
+            # Rounded rectangle distance
+            dx = max(0.0, max(box_pad + box_r - px, px - (size - box_pad - box_r)))
+            dy = max(0.0, max(box_pad + box_r - py, py - (size - box_pad - box_r)))
+            corner_dist = math.hypot(dx, dy)
+            in_rect = px >= box_pad and px <= size - box_pad and py >= box_pad and py <= size - box_pad
+            box_alpha = max(0.0, min(1.0, (box_r + 0.5) - corner_dist)) if (dx > 0 and dy > 0) else (1.0 if in_rect else 0.0)
+
+            if box_alpha <= 0.0:
+                continue
+
+            if checked:
+                # Filled green background (#4C9E45)
+                r, g, b = 76, 158, 69
+                d_c = min(_dist_to_segment(px, py, *seg) for seg in check_segs)
+                check_a = max(0.0, min(1.0, (half_stroke + 0.5) - d_c))
+                if check_a > 0.0:
+                    r = int(76 * (1.0 - check_a) + 255 * check_a + 0.5)
+                    g = int(158 * (1.0 - check_a) + 255 * check_a + 0.5)
+                    b = int(69 * (1.0 - check_a) + 255 * check_a + 0.5)
+                buf[idx] = r
+                buf[idx + 1] = g
+                buf[idx + 2] = b
+                buf[idx + 3] = int(box_alpha * 255 + 0.5)
+            else:
+                # Neutral border (#111111)
+                d_edge = min(px - box_pad, (size - box_pad) - px, py - box_pad, (size - box_pad) - py)
+                border_a = max(0.0, min(1.0, (1.5 * scale + 0.5) - d_edge))
+                a = min(box_alpha, border_a)
+                if a > 0.0:
+                    buf[idx] = 17
+                    buf[idx + 1] = 17
+                    buf[idx + 2] = 17
+                    buf[idx + 3] = int(a * 255 + 0.5)
+
+    return tk.PhotoImage(data=_rgba_to_png(size, size, buf))
+
+
+def render_check_circle_photo(size: int, bg_hex: str, circle_hex: str, check_hex: str) -> tk.PhotoImage:
+    """
+    Renders `assets/check_circle.svg` (filled anti-aliased circle + rounded-cap checkmark)
+    onto a tk.PhotoImage of `size x size` pixels.
+    """
+    bg = _hex_to_rgb(bg_hex)
+    circle_rgb = _hex_to_rgb(circle_hex)
+    check_rgb = _hex_to_rgb(check_hex)
+    scale = size / 24.0
+    cx = 12.0 * scale
+    cy = 12.0 * scale
+    radius = 9.8 * scale
+    half_stroke = 1.25 * scale
+
+    segments = [
+        (7.4 * scale, 12.2 * scale, 10.6 * scale, 15.4 * scale),
+        (10.6 * scale, 15.4 * scale, 16.8 * scale, 8.8 * scale),
+    ]
+
+    buf = bytearray()
+    for y in range(size):
+        py = y + 0.5
+        for x in range(size):
+            px = x + 0.5
+            dist_center = math.hypot(px - cx, py - cy)
+            circle_alpha = max(0.0, min(1.0, (radius + 0.5) - dist_center))
+            pix = _blend_rgb(bg, circle_rgb, circle_alpha)
+
+            if circle_alpha > 0.0:
+                d_check = min(_dist_to_segment(px, py, *seg) for seg in segments)
+                check_alpha = max(0.0, min(1.0, (half_stroke + 0.5) - d_check))
+                if check_alpha > 0.0:
+                    pix = _blend_rgb(pix, check_rgb, check_alpha)
+
+            buf.extend(pix)
+
+    header = f"P6\n{size} {size}\n255\n".encode("ascii")
+    return tk.PhotoImage(data=header + bytes(buf))
+
+
+def render_spinner_frame_photo(
+    size: int, angle_deg: float, bg_hex: str, track_hex: str, arc_hex: str
+) -> tk.PhotoImage:
+    """
+    Renders a single anti-aliased circular spinner frame onto a tk.PhotoImage.
+    """
+    bg = _hex_to_rgb(bg_hex)
+    track_rgb = _hex_to_rgb(track_hex)
+    arc_rgb = _hex_to_rgb(arc_hex)
+    scale = size / 24.0
+    cx = 12.0 * scale
+    cy = 12.0 * scale
+    radius = 8.5 * scale
+    half_stroke = 1.35 * scale
+    start_rad = math.radians(angle_deg % 360.0)
+    sweep = math.radians(240.0)
+
+    buf = bytearray()
+    for y in range(size):
+        py = y + 0.5
+        for x in range(size):
+            px = x + 0.5
+            dx = px - cx
+            dy = py - cy
+            dist_ring = abs(math.hypot(dx, dy) - radius)
+            ring_alpha = max(0.0, min(1.0, (half_stroke + 0.5) - dist_ring))
+            if ring_alpha <= 0.0:
+                buf.extend(bg)
+                continue
+
+            theta = math.atan2(-dy, dx) % (2.0 * math.pi)
+            rel = (theta - start_rad) % (2.0 * math.pi)
+            color = arc_rgb if rel <= sweep else track_rgb
+            buf.extend(_blend_rgb(bg, color, ring_alpha))
+
+    header = f"P6\n{size} {size}\n255\n".encode("ascii")
+    return tk.PhotoImage(data=header + bytes(buf))
 
 
 def get_cell_highlight(col_name: str, value: str) -> Tuple[str, str, bool]:
@@ -171,7 +464,6 @@ class ModernScrollbar(tk.Canvas):
         w = max(1, self.winfo_width())
         h = max(1, self.winfo_height())
 
-        # If content fits completely, draw subtle green tint bar or leave clean white track
         span = self.last - self.first
         thumb_color = PALETTE["primary_hover"] if (self.hover or self.dragging) else PALETTE["primary"]
         if span >= 0.999:
@@ -213,7 +505,6 @@ class ModernScrollbar(tk.Canvas):
             self.drag_start_coord = coord
             self.drag_start_first = self.first
         else:
-            # Jump to clicked position
             span = self.last - self.first
             target = max(0.0, min(1.0 - span, click_frac - span / 2.0))
             self.command("moveto", target)
@@ -345,6 +636,9 @@ class BarcoIDApp:
         self.tk_font_body = tkfont.Font(root=self.root, font=FONT_BODY)
         self.tk_font_heading = tkfont.Font(root=self.root, font=FONT_HEADING)
 
+        # Pre-render anti-aliased SVG icons (arrows, check-circle, and spinner frames)
+        self._init_svg_icons()
+
         # State variables
         self.current_step = 0
         self.fasta_var = tk.StringVar()
@@ -370,7 +664,7 @@ class BarcoIDApp:
 
         # Execution, Spinner Animation, Results Table & Diagnostics state
         self.is_running = False
-        self.spinner_angle = 0
+        self.spinner_frame_idx = 0
         self.service_states: Dict[str, str] = {
             "morpho": "Idle",
             "bold": "Idle",
@@ -383,6 +677,17 @@ class BarcoIDApp:
         self._resizing_col_idx: Optional[int] = None
         self._resize_start_x: int = 0
         self._resize_start_w: int = 0
+
+        # Summary metric card StringVars (plus legacy summary_var for backward compatibility)
+        self.summary_var = tk.StringVar(value="Total: 0")
+        self.summary_card_vars: Dict[str, tk.StringVar] = {
+            "TOTAL": tk.StringVar(value="0"),
+            "CONCORDANT": tk.StringVar(value="0"),
+            "NEW_ASSIGNMENT": tk.StringVar(value="0"),
+            "MISMATCH_ALERT": tk.StringVar(value="0"),
+            "NO_MATCH": tk.StringVar(value="0"),
+        }
+        self.summary_cards: Dict[str, Tuple[tk.Frame, tk.Label, tk.Label]] = {}
 
         self.last_excel_path: Optional[Path] = None
         self.last_error_trace: str = ""
@@ -419,6 +724,30 @@ class BarcoIDApp:
             self.dpi_scale = float(dpi) / 96.0
         except Exception:
             self.dpi_scale = 1.0
+
+    def _init_svg_icons(self):
+        """Pre-renders smooth anti-aliased PhotoImages for the SVG arrow, radio, check-circle, and spinner icons."""
+        # 30% larger arrows with true alpha transparency (seamless blend on hover/click)
+        arrow_sz = max(24, int(24 * self.dpi_scale))
+        badge_sz = max(22, int(22 * self.dpi_scale))
+        radio_sz = max(20, int(20 * self.dpi_scale))
+        self.badge_px = badge_sz
+
+        self.icon_arrow_right = render_arrow_photo("right", arrow_sz, "#FFFFFF")
+        self.icon_arrow_left = render_arrow_photo("left", arrow_sz, PALETTE["text_dark"])
+        self.icon_radio_unselected = render_radio_photo(False, radio_sz)
+        self.icon_radio_selected = render_radio_photo(True, radio_sz)
+        self.icon_check_unselected = render_checkbox_photo(False, radio_sz)
+        self.icon_check_selected = render_checkbox_photo(True, radio_sz)
+        self.icon_check_done = render_check_circle_photo(
+            badge_sz, PALETTE["primary_tint"], PALETTE["primary"], "#FFFFFF"
+        )
+        self.spinner_photos: List[tk.PhotoImage] = [
+            render_spinner_frame_photo(
+                badge_sz, angle, PALETTE["primary"], PALETTE["primary_hover"], "#FFFFFF"
+            )
+            for angle in range(0, 360, 24)
+        ]
 
     def _default_results_col_widths(self) -> List[int]:
         """
@@ -578,6 +907,7 @@ class BarcoIDApp:
                 font=FONT_HEADING,
                 relief="solid",
                 bd=1,
+                highlightthickness=0,
                 padx=12,
                 pady=6,
                 cursor="hand2",
@@ -694,23 +1024,49 @@ class BarcoIDApp:
         flags_row.grid(row=3, column=1, columnspan=2, sticky="w", pady=8)
 
         tk.Checkbutton(
-            flags_row, text="Dry Run (inspect cache only)", variable=self.dry_run_var,
-            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"],
-            activebackground=PALETTE["card_inner"], selectcolor=PALETTE["card_inner"], font=FONT_BODY
-        ).pack(side="left", padx=(0, 20))
+            flags_row,
+            text="  Dry Run (inspect cache only)",
+            variable=self.dry_run_var,
+            image=self.icon_check_unselected,
+            selectimage=self.icon_check_selected,
+            indicatoron=False,
+            compound="left",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            activebackground=PALETTE["card_inner"],
+            activeforeground=PALETTE["text_dark"],
+            font=FONT_BODY,
+            cursor="hand2",
+        ).pack(side="left", padx=(0, 24))
 
         tk.Checkbutton(
-            flags_row, text="Force Refresh (bypass disk cache)", variable=self.force_refresh_var,
-            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"],
-            activebackground=PALETTE["card_inner"], selectcolor=PALETTE["card_inner"], font=FONT_BODY
+            flags_row,
+            text="  Force Refresh (bypass disk cache)",
+            variable=self.force_refresh_var,
+            image=self.icon_check_unselected,
+            selectimage=self.icon_check_selected,
+            indicatoron=False,
+            compound="left",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            activebackground=PALETTE["card_inner"],
+            activeforeground=PALETTE["text_dark"],
+            font=FONT_BODY,
+            cursor="hand2",
         ).pack(side="left")
 
-        # Footer Navigation
+        # Footer Navigation (with anti-aliased SVG arrow icon)
         footer1 = tk.Frame(page, bg=PALETTE["card_inner"])
         footer1.pack(side="bottom", fill="x", pady=(16, 0))
 
         self._make_button(
-            footer1, "Next: Metadata Column ->", lambda: self.show_step(1), primary=True
+            footer1, "Next: Metadata Column  ", lambda: self.show_step(1), primary=True, arrow="right"
         ).pack(side="right")
 
     # ------------------------------------------------------------------
@@ -753,16 +1109,44 @@ class BarcoIDApp:
         tk.Label(
             mode_box, text="Header Click Sets:", font=FONT_HEADING,
             fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
-        ).pack(side="left", padx=(0, 6))
+        ).pack(side="left", padx=(0, 10))
         tk.Radiobutton(
-            mode_box, text="Morphospecies", variable=self.click_target_var, value="morpho",
-            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], selectcolor=PALETTE["card_inner"],
-            activebackground=PALETTE["card_inner"], font=FONT_BODY
-        ).pack(side="left", padx=(0, 6))
+            mode_box,
+            text="  Morphospecies",
+            variable=self.click_target_var,
+            value="morpho",
+            image=self.icon_radio_unselected,
+            selectimage=self.icon_radio_selected,
+            indicatoron=False,
+            compound="left",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            activebackground=PALETTE["card_inner"],
+            activeforeground=PALETTE["text_dark"],
+            font=FONT_BODY,
+            cursor="hand2",
+        ).pack(side="left", padx=(0, 14))
         tk.Radiobutton(
-            mode_box, text="Sample ID", variable=self.click_target_var, value="sample",
-            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], selectcolor=PALETTE["card_inner"],
-            activebackground=PALETTE["card_inner"], font=FONT_BODY
+            mode_box,
+            text="  Sample ID",
+            variable=self.click_target_var,
+            value="sample",
+            image=self.icon_radio_unselected,
+            selectimage=self.icon_radio_selected,
+            indicatoron=False,
+            compound="left",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            activebackground=PALETTE["card_inner"],
+            activeforeground=PALETTE["text_dark"],
+            font=FONT_BODY,
+            cursor="hand2",
         ).pack(side="left")
 
         # Row 2 of Toolbar: Elastic 4-Column Grid for Morphospecies Column & Sample ID Column
@@ -813,16 +1197,16 @@ class BarcoIDApp:
             anchor="w",
         ).pack(fill="x")
 
-        # Footer Navigation
+        # Footer Navigation (with SVG arrow icons)
         footer2 = tk.Frame(page, bg=PALETTE["card_inner"])
         footer2.pack(side="bottom", fill="x", pady=(12, 0))
 
         self._make_button(
-            footer2, "<- Back: Sequences", lambda: self.show_step(0), primary=False
+            footer2, "  Back: Sequences", lambda: self.show_step(0), primary=False, arrow="left"
         ).pack(side="left")
 
         self._make_button(
-            footer2, "Next: Run ->", lambda: self.show_step(2), primary=True
+            footer2, "Next: Run  ", lambda: self.show_step(2), primary=True, arrow="right"
         ).pack(side="right")
 
         # Interactive Spreadsheet Preview Table with ModernScrollbars
@@ -937,7 +1321,11 @@ class BarcoIDApp:
             s_lbl.pack(side="right")
 
             spin_canvas = tk.Canvas(
-                card, width=22, height=22, bg=PALETTE["card_inner"], highlightthickness=0
+                card,
+                width=self.badge_px,
+                height=self.badge_px,
+                bg=PALETTE["card_inner"],
+                highlightthickness=0,
             )
             spin_canvas.pack(side="right", padx=(6, 6))
 
@@ -970,16 +1358,16 @@ class BarcoIDApp:
         )
         self.progress_bar.pack(fill="x", pady=(6, 0))
 
-        # Footer Navigation
+        # Footer Navigation (with SVG arrow icons)
         footer3 = tk.Frame(page, bg=PALETTE["card_inner"])
         footer3.pack(side="bottom", fill="x", pady=(12, 0))
 
         self._make_button(
-            footer3, "<- Back: Metadata Column", lambda: self.show_step(1), primary=False
+            footer3, "  Back: Metadata Column", lambda: self.show_step(1), primary=False, arrow="left"
         ).pack(side="left")
 
         self.to_results_btn = self._make_button(
-            footer3, "Next: Results ->", lambda: self.show_step(3), primary=True
+            footer3, "Next: Results  ", lambda: self.show_step(3), primary=True, arrow="right"
         )
         self.to_results_btn.pack(side="right")
 
@@ -998,7 +1386,7 @@ class BarcoIDApp:
         self.log_text.pack(fill="both", expand=True)
 
     # ------------------------------------------------------------------
-    # STEP 4: RESULTS (Interactive Resizable & Auto-Expandable Table)
+    # STEP 4: RESULTS (Segmented Summary Cards + Interactive Resizable Table)
     # ------------------------------------------------------------------
     def _build_step4_results(self):
         page = tk.Frame(
@@ -1040,35 +1428,56 @@ class BarcoIDApp:
 
         tk.Label(
             res_bar,
-            text="Tip: Drag column borders to resize, or double-click any column header/border to expand.",
+            text="Double-click any column header or drag borders to expand/resize columns.",
             font=FONT_BODY,
             fg=PALETTE["text_dark"],
             bg=PALETTE["card_inner"],
         ).pack(side="right")
 
-        # Concordance Summary Banner
-        self.summary_var = tk.StringVar(
-            value="Concordance Summary:   Total: 0   |   CONCORDANT: 0   |   NEW_ASSIGNMENT: 0   |   MISMATCH_ALERT: 0   |   NO_MATCH: 0"
-        )
-        tk.Label(
-            page,
-            textvariable=self.summary_var,
-            font=FONT_HEADING,
-            fg=PALETTE["text_dark"],
-            bg=PALETTE["primary_tint"],
-            highlightbackground=PALETTE["primary"],
-            highlightthickness=1,
-            padx=12,
-            pady=8,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 10))
+        # Segmented Concordance Summary Cards (5 distinct boxes instead of '|' pipes)
+        summary_grid = tk.Frame(page, bg=PALETTE["card_inner"])
+        summary_grid.pack(fill="x", pady=(0, 12))
 
-        # Footer Navigation
+        summary_defs = [
+            ("TOTAL", "Total Sequences"),
+            ("CONCORDANT", "Concordant"),
+            ("NEW_ASSIGNMENT", "New Assignment"),
+            ("MISMATCH_ALERT", "Mismatch Alert"),
+            ("NO_MATCH", "No Match"),
+        ]
+        for idx, (key, label_text) in enumerate(summary_defs):
+            summary_grid.columnconfigure(idx, weight=1)
+            bg_init = PALETTE["primary_tint"] if key == "TOTAL" else PALETTE["card_inner"]
+            border_init = PALETTE["primary"] if key == "TOTAL" else PALETTE["border"]
+            card = tk.Frame(
+                summary_grid,
+                bg=bg_init,
+                highlightbackground=border_init,
+                highlightthickness=1,
+                padx=14,
+                pady=8,
+            )
+            card.grid(row=0, column=idx, sticky="ew", padx=(0 if idx == 0 else 8, 0))
+            title_lbl = tk.Label(
+                card, text=label_text, font=FONT_BODY, fg=PALETTE["text_dark"], bg=bg_init
+            )
+            title_lbl.pack(side="left")
+            val_lbl = tk.Label(
+                card,
+                textvariable=self.summary_card_vars[key],
+                font=FONT_HEADING,
+                fg=PALETTE["text_dark"],
+                bg=bg_init,
+            )
+            val_lbl.pack(side="right")
+            self.summary_cards[key] = (card, title_lbl, val_lbl)
+
+        # Footer Navigation (with SVG arrow icon)
         footer4 = tk.Frame(page, bg=PALETTE["card_inner"])
         footer4.pack(side="bottom", fill="x", pady=(12, 0))
 
         self._make_button(
-            footer4, "<- Back: Run", lambda: self.show_step(2), primary=False
+            footer4, "  Back: Run", lambda: self.show_step(2), primary=False, arrow="left"
         ).pack(side="left")
 
         # Scrollable Canvas Grid with ModernScrollbars
@@ -1090,7 +1499,6 @@ class BarcoIDApp:
         grid_wrap.rowconfigure(0, weight=1)
         grid_wrap.columnconfigure(0, weight=1)
 
-        # Interactive mouse bindings for column resizing, Excel double-click auto-fit, and wheel scrolling
         self.results_canvas.bind("<Motion>", self._on_results_motion)
         self.results_canvas.bind("<ButtonPress-1>", self._on_results_press)
         self.results_canvas.bind("<B1-Motion>", self._on_results_drag)
@@ -1102,6 +1510,31 @@ class BarcoIDApp:
         )
 
         self.populate_results_table([])
+
+    def _update_summary_cards(self, total: int, counts: Dict[str, int]):
+        """Updates the 5 segmented summary cards in Step 4 and highlights non-zero counts."""
+        self.summary_card_vars["TOTAL"].set(str(total))
+        for key in ("CONCORDANT", "NEW_ASSIGNMENT", "MISMATCH_ALERT", "NO_MATCH"):
+            val = counts.get(key, 0)
+            self.summary_card_vars[key].set(str(val))
+            card, t_lbl, v_lbl = self.summary_cards[key]
+            if val > 0 and key == "CONCORDANT":
+                bg, fg, border = PALETTE["primary"], "#FFFFFF", PALETTE["primary"]
+            elif val > 0 and key == "NEW_ASSIGNMENT":
+                bg, fg, border = PALETTE["primary_tint"], PALETTE["text_dark"], PALETTE["primary"]
+            elif val > 0 and key == "MISMATCH_ALERT":
+                bg, fg, border = PALETTE["alert_tint"], PALETTE["text_dark"], PALETTE["border"]
+            else:
+                bg, fg, border = PALETTE["card_inner"], PALETTE["text_dark"], PALETTE["border"]
+            card.configure(bg=bg, highlightbackground=border)
+            t_lbl.configure(bg=bg, fg=fg)
+            v_lbl.configure(bg=bg, fg=fg)
+
+        self.summary_var.set(
+            f"Total: {total}  CONCORDANT: {counts['CONCORDANT']}  "
+            f"NEW_ASSIGNMENT: {counts['NEW_ASSIGNMENT']}  "
+            f"MISMATCH_ALERT: {counts['MISMATCH_ALERT']}  NO_MATCH: {counts['NO_MATCH']}"
+        )
 
     # ------------------------------------------------------------------
     # Interactive Results Table Rendering, Truncation & Resizing
@@ -1160,7 +1593,7 @@ class BarcoIDApp:
     def auto_expand_results_column(self, col_idx: int):
         """
         Excel-style double-click behavior:
-        - If the column is currently narrower than its full auto-fit width, expand it to full auto-fit width.
+        - If the column is narrower than its full auto-fit width, expand it to full auto-fit width.
         - If it is already expanded and is an intermediate column, squish it back to compact width.
         """
         if not (0 <= col_idx < len(RESULTS_COLUMNS)):
@@ -1332,27 +1765,19 @@ class BarcoIDApp:
             self.auto_expand_results_column(col_idx)
 
     # ------------------------------------------------------------------
-    # Circular Spinner Animation & Service Card Updates
+    # Anti-Aliased Circular Spinner & Check-Circle SVG Rendering
     # ------------------------------------------------------------------
     def _animate_spinners(self):
-        """Rotates circular arc spinners on any stream card currently in 'Active' state."""
-        self.spinner_angle = (self.spinner_angle - 24) % 360
+        """Updates anti-aliased spinner frames and check-circle SVG icons on stream cards."""
+        self.spinner_frame_idx = (self.spinner_frame_idx + 1) % len(self.spinner_photos)
+        mid = self.badge_px // 2
         for key, canvas in self.service_spinners.items():
             state = self.service_states.get(key, "Idle")
             canvas.delete("all")
             if state == "Active":
-                canvas.create_oval(3, 3, 19, 19, outline="#3B8235", width=2)
-                canvas.create_arc(
-                    3, 3, 19, 19,
-                    start=self.spinner_angle,
-                    extent=250,
-                    style="arc",
-                    outline="#FFFFFF",
-                    width=2.5,
-                )
+                canvas.create_image(mid, mid, image=self.spinner_photos[self.spinner_frame_idx])
             elif state == "Done":
-                canvas.create_oval(3, 3, 19, 19, outline=PALETTE["primary"], width=2)
-                canvas.create_line(7, 11, 10, 14, 15, 8, fill=PALETTE["primary"], width=2)
+                canvas.create_image(mid, mid, image=self.icon_check_done)
 
         self.root.after(60, self._animate_spinners)
 
@@ -1416,7 +1841,7 @@ class BarcoIDApp:
                 else "FASTA deflines only"
             )
             self.run_overview_var.set(
-                f"FASTA: {fasta_name}   |   Metadata: {meta_name}   |   Target Taxon: {self.taxon_var.get()}"
+                f"FASTA: {fasta_name}     •     Metadata: {meta_name}     •     Target Taxon: {self.taxon_var.get()}"
             )
 
     def _make_button(
@@ -1425,11 +1850,21 @@ class BarcoIDApp:
         text: str,
         command,
         primary: bool = True,
+        arrow: Optional[str] = None,
     ) -> tk.Button:
         bg = PALETTE["primary"] if primary else PALETTE["card_inner"]
         fg = "#FFFFFF" if primary else PALETTE["text_dark"]
         active_bg = PALETTE["primary_hover"] if primary else PALETTE["primary_tint"]
         active_fg = "#FFFFFF" if primary else PALETTE["text_dark"]
+
+        kwargs: Dict[str, Any] = {}
+        if arrow == "right":
+            kwargs["image"] = self.icon_arrow_right
+            kwargs["compound"] = "right"
+        elif arrow == "left":
+            kwargs["image"] = self.icon_arrow_left
+            kwargs["compound"] = "left"
+
         return tk.Button(
             parent,
             text=text,
@@ -1441,10 +1876,12 @@ class BarcoIDApp:
             activeforeground=active_fg,
             relief="solid",
             bd=1,
+            highlightthickness=0,
             padx=14,
             pady=6,
             font=FONT_HEADING,
             cursor="hand2",
+            **kwargs,
         )
 
     def _attach_logging(self):
@@ -1711,7 +2148,7 @@ class BarcoIDApp:
             example_text = "Click any column header below to select the Morphospecies column."
 
         self.morpho_preview_var.set(
-            f"Active Morphospecies Column: '{m_col}'   |   Sample ID: '{s_col}'   |   {example_text}"
+            f"Active Morphospecies Column: '{m_col}'     •     Sample ID: '{s_col}'     •     {example_text}"
         )
 
     # ------------------------------------------------------------------
@@ -1856,14 +2293,7 @@ class BarcoIDApp:
                     if st in counts:
                         counts[st] += 1
 
-                self.summary_var.set(
-                    f"Concordance Summary:   Total: {len(rows)}   |   "
-                    f"CONCORDANT: {counts['CONCORDANT']}   |   "
-                    f"NEW_ASSIGNMENT: {counts['NEW_ASSIGNMENT']}   |   "
-                    f"MISMATCH_ALERT: {counts['MISMATCH_ALERT']}   |   "
-                    f"NO_MATCH: {counts['NO_MATCH']}"
-                )
-
+                self._update_summary_cards(len(rows), counts)
                 self.populate_results_table(rows)
 
                 if not is_dry_run and xlsx_path.exists():

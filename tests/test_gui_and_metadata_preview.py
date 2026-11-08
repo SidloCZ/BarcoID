@@ -13,6 +13,9 @@ from barcoid.cli import main
 from barcoid.config import BarcoIDConfig
 from barcoid.gui import (
     PALETTE,
+    SVG_ARROW_LEFT_PATH,
+    SVG_ARROW_RIGHT_PATH,
+    SVG_CHECK_CIRCLE_PATH,
     SVG_ICON_PATH,
     BarcoIDApp,
     build_config_from_inputs,
@@ -33,14 +36,19 @@ def test_single_cell_highlighting_rules():
 
 
 def test_palette_and_4streams_svg():
-    """Verifies the 2-color minimalist palette (#4C9E45 + #111111/#FFFFFF) and 4-streams SVG icon."""
+    """Verifies the 2-color minimalist palette (#4C9E45 + #111111/#FFFFFF) and SVG icons."""
     assert PALETTE["primary"] == "#4C9E45"
     assert PALETTE["text_dark"] == "#111111"
     assert PALETTE["bg_canvas"] == "#FFFFFF"
-    assert SVG_ICON_PATH.exists()
-    svg_content = SVG_ICON_PATH.read_text(encoding="utf-8")
-    assert "<svg" in svg_content
-    assert "#4C9E45" in svg_content
+    for svg_path in (
+        SVG_ICON_PATH,
+        SVG_ARROW_RIGHT_PATH,
+        SVG_ARROW_LEFT_PATH,
+        SVG_CHECK_CIRCLE_PATH,
+    ):
+        assert svg_path.exists()
+        svg_content = svg_path.read_text(encoding="utf-8")
+        assert "<svg" in svg_content
 
 
 def test_metadata_preview_csv_and_xlsx(tmp_path: Path):
@@ -183,14 +191,41 @@ def test_gui_interactive_column_picker():
         assert app.current_step == 2
         assert "field_genus" in app.run_overview_var.get()
 
-        # Verify active circle spinner animation and Done state on stream cards
+        # Verify active circle spinner animation and smooth SVG Done state on stream cards
         app._set_service_states(ncbi="Active", bold="Done")
         app._animate_spinners()
-        assert len(app.service_spinners["ncbi"].find_all()) >= 2
-        assert len(app.service_spinners["bold"].find_all()) >= 2
+        assert len(app.service_spinners["ncbi"].find_all()) == 1
+        assert len(app.service_spinners["bold"].find_all()) == 1
+        assert len(app.spinner_photos) == 15
+        assert app.icon_check_done is not None
+        assert app.icon_arrow_right is not None
+        assert app.icon_arrow_left is not None
+        assert app.icon_radio_unselected is not None
+        assert app.icon_radio_selected is not None
+        assert app.icon_check_unselected is not None
+        assert app.icon_check_selected is not None
 
-        # Step 4: Results table with single-cell highlighting
+        # Step 4: Results table with single-cell highlighting & segmented summary cards
         assert len(app.step_frames) == 4
+        assert set(app.summary_cards.keys()) == {
+            "TOTAL",
+            "CONCORDANT",
+            "NEW_ASSIGNMENT",
+            "MISMATCH_ALERT",
+            "NO_MATCH",
+        }
+        app._update_summary_cards(
+            total=3,
+            counts={
+                "CONCORDANT": 2,
+                "NEW_ASSIGNMENT": 1,
+                "MISMATCH_ALERT": 0,
+                "NO_MATCH": 0,
+            },
+        )
+        assert app.summary_card_vars["TOTAL"].get() == "3"
+        assert app.summary_card_vars["CONCORDANT"].get() == "2"
+        assert app.summary_card_vars["NEW_ASSIGNMENT"].get() == "1"
         app.populate_results_table(
             [
                 {
