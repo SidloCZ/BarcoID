@@ -31,8 +31,16 @@ def test_single_cell_highlighting_rules():
     """Verifies that only Concordance_Status and QC_Flag cells receive highlight fills."""
     assert get_cell_highlight("Sample_ID", "MJB001") == ("#FFFFFF", "#111111", False)
     assert get_cell_highlight("Concordance_Status", "CONCORDANT") == ("#4C9E45", "#FFFFFF", True)
-    assert get_cell_highlight("Concordance_Status", "NEW_ASSIGNMENT") == ("#EAF4E9", "#111111", True)
-    assert get_cell_highlight("Concordance_Status", "MISMATCH_ALERT") == ("#FDECEC", "#111111", True)
+    assert get_cell_highlight("Concordance_Status", "NEW_ASSIGNMENT") == (
+        "#EAF4E9",
+        "#111111",
+        True,
+    )
+    assert get_cell_highlight("Concordance_Status", "MISMATCH_ALERT") == (
+        "#FDECEC",
+        "#111111",
+        True,
+    )
     assert get_cell_highlight("QC_Flag", "OK") == ("#4C9E45", "#FFFFFF", True)
     assert get_cell_highlight("QC_Flag", "CONTAMINATION_SUSPECT") == ("#FDECEC", "#111111", True)
 
@@ -285,4 +293,3 @@ def test_gui_interactive_column_picker():
         app.guide_win = None
     finally:
         root.destroy()
-

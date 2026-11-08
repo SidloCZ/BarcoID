@@ -5,10 +5,11 @@ Unit tests for BarcoID sequence and header parsers.
 import tempfile
 import unittest
 from pathlib import Path
+
 from barcoid.parsers.fasta import FastaParser
 from barcoid.parsers.headers import HeaderParser
-from barcoid.parsers.ontbarcoder import OntbarcoderParser
 from barcoid.parsers.metadata import MetadataParser
+from barcoid.parsers.ontbarcoder import OntbarcoderParser
 
 
 class TestParsers(unittest.TestCase):
@@ -85,4 +86,3 @@ class TestParsers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

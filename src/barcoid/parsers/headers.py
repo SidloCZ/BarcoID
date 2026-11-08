@@ -40,13 +40,46 @@ DEFAULT_GENUS_PREFIXES: Dict[str, str] = {
 }
 
 DEFAULT_KNOWN_GENERA = {
-    "Pheidole", "Hypoponera", "Polyrhachis", "Carebara", "Brachymyrmex", "Leptogenys",
-    "Crematogaster", "Camponotus", "Tetramorium", "Strumigenys", "Solenopsis", "Tapinoma",
-    "Acropyga", "Anochetus", "Cardiocondyla", "Colobopsis", "Diacamma", "Ectomomyrmex",
-    "Lepisiota", "Monomorium", "Myrmicaria", "Oecophylla", "Odontomachus", "Nylanderia",
-    "Paratrechina", "Plagiolepis", "Pristomyrmex", "Pseudolasius", "Technomyrmex",
-    "Brachyponera", "Ponera", "Mesoponera", "Platythyrea", "Gnamptogenys", "Rhytidoponera",
-    "Leptomyrmex", "Iridomyrmex", "Ochetellus", "Dolichoderus", "Bothriomyrmex"
+    "Pheidole",
+    "Hypoponera",
+    "Polyrhachis",
+    "Carebara",
+    "Brachymyrmex",
+    "Leptogenys",
+    "Crematogaster",
+    "Camponotus",
+    "Tetramorium",
+    "Strumigenys",
+    "Solenopsis",
+    "Tapinoma",
+    "Acropyga",
+    "Anochetus",
+    "Cardiocondyla",
+    "Colobopsis",
+    "Diacamma",
+    "Ectomomyrmex",
+    "Lepisiota",
+    "Monomorium",
+    "Myrmicaria",
+    "Oecophylla",
+    "Odontomachus",
+    "Nylanderia",
+    "Paratrechina",
+    "Plagiolepis",
+    "Pristomyrmex",
+    "Pseudolasius",
+    "Technomyrmex",
+    "Brachyponera",
+    "Ponera",
+    "Mesoponera",
+    "Platythyrea",
+    "Gnamptogenys",
+    "Rhytidoponera",
+    "Leptomyrmex",
+    "Iridomyrmex",
+    "Ochetellus",
+    "Dolichoderus",
+    "Bothriomyrmex",
 }
 
 
@@ -70,7 +103,7 @@ class HeaderParser:
         m_sample = re.search(r"(MJB\d{7}_MJB\d{3}(?:_redo\d*)?)", main_id)
         if m_sample:
             sample_id = m_sample.group(1)
-            suffix = main_id[m_sample.end():].lstrip("_")
+            suffix = main_id[m_sample.end() :].lstrip("_")
         else:
             tokens = main_id.split("_")
             if len(tokens) > 1:

@@ -1,4 +1,3 @@
 """
 BarcoID test suite.
 """
-

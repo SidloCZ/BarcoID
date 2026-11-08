@@ -8,8 +8,9 @@ import logging
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from Bio.Blast import NCBIXML
+
 import requests
+from Bio.Blast import NCBIXML
 
 from barcoid.cache import CacheManager
 from barcoid.config import BarcoIDConfig
@@ -33,9 +34,7 @@ class RemoteBlastEngine:
         min_interval = 0.35 if config.ncbi_api_key else self.config.ncbi_delay_between_batches
         self.rate_limiter = RateLimiter(min_interval_seconds=min_interval)
 
-    def identify_sequences(
-        self, sequences: List[Tuple[str, str]]
-    ) -> Dict[str, Dict[str, Any]]:
+    def identify_sequences(self, sequences: List[Tuple[str, str]]) -> Dict[str, Dict[str, Any]]:
         """
         Submits sequences to NCBI QBLAST in small batches with strict timeouts
         and maps results back to original sequence headers.
@@ -67,7 +66,7 @@ class RemoteBlastEngine:
             query_map: Dict[str, Tuple[str, str]] = {}
             fasta_lines: List[str] = []
 
-            for q_num, (hdr, seq, seq_hash) in enumerate(chunk, start=1):
+            for q_num, (hdr, seq, _seq_hash) in enumerate(chunk, start=1):
                 qid = f"Q{q_num}"
                 query_map[qid] = (hdr, seq)
                 fasta_lines.append(f">{qid}\n{seq}\n")
@@ -75,7 +74,9 @@ class RemoteBlastEngine:
             chunk_fasta = "".join(fasta_lines)
             batch_num = (b_idx // batch_size) + 1
             total_batches = (total_pending + batch_size - 1) // batch_size
-            logger.info(f"  [Batch {batch_num}/{total_batches}] Querying NCBI for {len(chunk)} sequence(s)...")
+            logger.info(
+                f"  [Batch {batch_num}/{total_batches}] Querying NCBI for {len(chunk)} sequence(s)..."
+            )
 
             self.rate_limiter.wait()
             try:
@@ -92,7 +93,7 @@ class RemoteBlastEngine:
                         results[orig_hdr] = res_obj
 
                 # Fill any missing hits in this batch with empty result
-                for qid, (orig_hdr, orig_seq) in query_map.items():
+                for _qid, (orig_hdr, orig_seq) in query_map.items():
                     if orig_hdr not in results:
                         empty_res = self._empty_result()
                         self.cache_manager.set_ncbi(orig_seq, empty_res)
@@ -102,7 +103,7 @@ class RemoteBlastEngine:
 
             except Exception as e:
                 logger.error(f"NCBI QBLAST batch {batch_num} failed: {e}")
-                for qid, (orig_hdr, orig_seq) in query_map.items():
+                for _qid, (orig_hdr, orig_seq) in query_map.items():
                     empty_res = self._empty_result()
                     self.cache_manager.set_ncbi(orig_seq, empty_res)
                     results[orig_hdr] = empty_res
@@ -176,7 +177,9 @@ class RemoteBlastEngine:
                 r_xml = requests.get(url, params=get_params, timeout=60)
                 return r_xml.text
 
-        logger.warning(f"NCBI Search RID {rid} stalled and timed out after {self.config.ncbi_timeout}s.")
+        logger.warning(
+            f"NCBI Search RID {rid} stalled and timed out after {self.config.ncbi_timeout}s."
+        )
         return None
 
     def _parse_blast_record(self, record: Any) -> Dict[str, Any]:
@@ -198,22 +201,26 @@ class RemoteBlastEngine:
                 species = f"{genus} {species_token}"
             else:
                 # Fallback tokenization
-                clean_title = re.sub(r"^(?:TPA(?:_asm)?:\s*|UNVERIFIED:\s*|PREDICTED:\s*)", "", title.strip())
+                clean_title = re.sub(
+                    r"^(?:TPA(?:_asm)?:\s*|UNVERIFIED:\s*|PREDICTED:\s*)", "", title.strip()
+                )
                 words = clean_title.split()
                 if len(words) >= 2 and words[0].isalpha():
                     genus = words[0]
                     species = f"{words[0]} {words[1]}"
 
-            hits.append({
-                "accession": accession,
-                "title": title,
-                "pct_identity": round(pct_id, 2),
-                "evalue": hsp.expect,
-                "bitscore": hsp.bits,
-                "alignment_length": hsp.align_length,
-                "genus": genus,
-                "species": species,
-            })
+            hits.append(
+                {
+                    "accession": accession,
+                    "title": title,
+                    "pct_identity": round(pct_id, 2),
+                    "evalue": hsp.expect,
+                    "bitscore": hsp.bits,
+                    "alignment_length": hsp.align_length,
+                    "genus": genus,
+                    "species": species,
+                }
+            )
 
         top_hit = hits[0] if hits else {}
         return {
@@ -242,4 +249,3 @@ class RemoteBlastEngine:
             "top_bitscore": 0.0,
             "all_hits": [],
         }
-

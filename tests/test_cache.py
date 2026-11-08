@@ -5,6 +5,7 @@ Tests for CacheManager persistent disk cache.
 import tempfile
 import unittest
 from pathlib import Path
+
 from barcoid.cache import CacheManager
 
 
@@ -57,4 +58,3 @@ class TestCacheManager(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

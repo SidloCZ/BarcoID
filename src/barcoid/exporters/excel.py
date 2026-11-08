@@ -53,25 +53,69 @@ class ExcelExporter:
         )
 
         comp_headers = [
-            "Sample_ID", "Plate", "Seq_Len_bp", "Read_Coverage", "Ambiguities",
-            "Field_Locality", "Field_Morpho_Code", "Field_Inferred_Genus", "Field_Voucher",
-            "BOLD_Top_Taxon", "BOLD_Genus", "BOLD_Pct_Identity", "BOLD_BIN_URI", "BOLD_Process_ID",
-            "NCBI_Top_Taxon", "NCBI_Genus", "NCBI_Pct_Identity", "NCBI_Accession", "NCBI_Evalue",
-            "GBIF_Canonical_Name", "GBIF_Rank", "GBIF_Confidence", "GBIF_Status", "GBIF_Taxon_ID",
-            "Consensus_Genus", "Consensus_Species", "Concordance_Status", "QC_Flag", "Full_FASTA_Header"
+            "Sample_ID",
+            "Plate",
+            "Seq_Len_bp",
+            "Read_Coverage",
+            "Ambiguities",
+            "Field_Locality",
+            "Field_Morpho_Code",
+            "Field_Inferred_Genus",
+            "Field_Voucher",
+            "BOLD_Top_Taxon",
+            "BOLD_Genus",
+            "BOLD_Pct_Identity",
+            "BOLD_BIN_URI",
+            "BOLD_Process_ID",
+            "NCBI_Top_Taxon",
+            "NCBI_Genus",
+            "NCBI_Pct_Identity",
+            "NCBI_Accession",
+            "NCBI_Evalue",
+            "GBIF_Canonical_Name",
+            "GBIF_Rank",
+            "GBIF_Confidence",
+            "GBIF_Status",
+            "GBIF_Taxon_ID",
+            "Consensus_Genus",
+            "Consensus_Species",
+            "Concordance_Status",
+            "QC_Flag",
+            "Full_FASTA_Header",
         ]
 
         ws_comp.append(comp_headers)
         ws_qc.append(comp_headers)
 
         bold_headers = [
-            "sample_id", "phylum", "class", "order", "family", "genus", "species",
-            "pct_identity", "status", "BIN", "process_id", "bitscore", "overlap", "mismatch", "evalue"
+            "sample_id",
+            "phylum",
+            "class",
+            "order",
+            "family",
+            "genus",
+            "species",
+            "pct_identity",
+            "status",
+            "BIN",
+            "process_id",
+            "bitscore",
+            "overlap",
+            "mismatch",
+            "evalue",
         ]
         ws_bold.append(bold_headers)
 
         ncbi_headers = [
-            "sample_id", "accession", "genus", "species", "pct_identity", "align_length", "bitscore", "evalue", "title"
+            "sample_id",
+            "accession",
+            "genus",
+            "species",
+            "pct_identity",
+            "align_length",
+            "bitscore",
+            "evalue",
+            "title",
         ]
         ws_ncbi.append(ncbi_headers)
 
@@ -118,36 +162,40 @@ class ExcelExporter:
                 ws_qc.append(comp_row)
 
             for bh in bold.get("all_hits", []):
-                ws_bold.append([
-                    meta.get("sample_id", ""),
-                    bh.get("phylum", ""),
-                    bh.get("class", ""),
-                    bh.get("order", ""),
-                    bh.get("family", ""),
-                    bh.get("genus", ""),
-                    bh.get("species", ""),
-                    bh.get("pct_identity", 0.0),
-                    "public",
-                    bh.get("bin_uri", ""),
-                    bh.get("process_id", ""),
-                    bh.get("bitscore", 0),
-                    bh.get("overlap", 0),
-                    bh.get("mismatch", 0),
-                    str(bh.get("evalue", "") or ""),
-                ])
+                ws_bold.append(
+                    [
+                        meta.get("sample_id", ""),
+                        bh.get("phylum", ""),
+                        bh.get("class", ""),
+                        bh.get("order", ""),
+                        bh.get("family", ""),
+                        bh.get("genus", ""),
+                        bh.get("species", ""),
+                        bh.get("pct_identity", 0.0),
+                        "public",
+                        bh.get("bin_uri", ""),
+                        bh.get("process_id", ""),
+                        bh.get("bitscore", 0),
+                        bh.get("overlap", 0),
+                        bh.get("mismatch", 0),
+                        str(bh.get("evalue", "") or ""),
+                    ]
+                )
 
             for nh in ncbi.get("all_hits", []):
-                ws_ncbi.append([
-                    meta.get("sample_id", ""),
-                    nh.get("accession", ""),
-                    nh.get("genus", ""),
-                    nh.get("species", ""),
-                    nh.get("pct_identity", 0.0),
-                    nh.get("alignment_length", 0),
-                    nh.get("bitscore", 0.0),
-                    str(nh.get("evalue", "") or ""),
-                    nh.get("title", ""),
-                ])
+                ws_ncbi.append(
+                    [
+                        meta.get("sample_id", ""),
+                        nh.get("accession", ""),
+                        nh.get("genus", ""),
+                        nh.get("species", ""),
+                        nh.get("pct_identity", 0.0),
+                        nh.get("alignment_length", 0),
+                        nh.get("bitscore", 0.0),
+                        str(nh.get("evalue", "") or ""),
+                        nh.get("title", ""),
+                    ]
+                )
 
         # Formatting sheets
         for ws, is_qc in [(ws_comp, False), (ws_qc, True), (ws_bold, False), (ws_ncbi, False)]:
@@ -181,4 +229,3 @@ class ExcelExporter:
                 ws.column_dimensions[col_letter].width = min(max(max_len + 3, 10), 45)
 
         wb.save(output_path)
-

@@ -40,14 +40,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Launch the standalone BarcoID Desktop GUI window (default when run with no arguments).",
     )
     parser.add_argument(
-        "-i", "--input",
+        "-i",
+        "--input",
         dest="input_fasta",
         type=Path,
         required=False,
         help="Path to input FASTA file containing query DNA barcodes.",
     )
     parser.add_argument(
-        "-m", "--metadata",
+        "-m",
+        "--metadata",
         dest="metadata_file",
         type=Path,
         help="Optional external CSV/TSV/XLSX metadata sheet linking vouchers to morphological IDs.",
@@ -67,7 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Column name in external metadata sheet for morphological taxon (default: 'field_morphospecies').",
     )
     parser.add_argument(
-        "-o", "--output-dir",
+        "-o",
+        "--output-dir",
         dest="output_dir",
         type=Path,
         default=Path("results"),
@@ -145,7 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="NCBI API key to unlock higher request limits (10 req/s).",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         dest="verbose",
         action="store_true",
         help="Enable detailed debug logging.",
@@ -174,7 +178,9 @@ def main(args=None):
         return
 
     if not parsed_args.input_fasta:
-        parser.error("the following arguments are required in CLI mode: -i/--input (or run with no arguments to open GUI)")
+        parser.error(
+            "the following arguments are required in CLI mode: -i/--input (or run with no arguments to open GUI)"
+        )
 
     configure_logging(verbose=parsed_args.verbose)
 

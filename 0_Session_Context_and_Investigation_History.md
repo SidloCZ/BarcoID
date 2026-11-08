@@ -178,8 +178,8 @@ All plans and outputs are synchronized to the shared team folders:
    ```python
    def decode_ontbarcoder_read(seq: str) -> str:
        # If read is reverse-strand encoded by ONTbarcoder
-       if any(c in seq for c in ('E', 'P', 'Q', 'F')):
-           tr = str.maketrans('EPQF', 'ATCG')
+       if any(c in seq for c in ("E", "P", "Q", "F")):
+           tr = str.maketrans("EPQF", "ATCG")
            return seq.translate(tr)
        return seq
    ```

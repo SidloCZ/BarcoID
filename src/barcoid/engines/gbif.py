@@ -3,7 +3,8 @@ GBIF Taxonomic Backbone Species Match client with deduplication, rate limiting, 
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
 import requests
 
 from barcoid.cache import CacheManager
@@ -90,4 +91,3 @@ class GbifEngine:
             results[name] = self.match_species(name)
 
         return results
-

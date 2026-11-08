@@ -53,7 +53,9 @@ class MetadataParser:
         self._load()
 
     @staticmethod
-    def _read_tabular_rows(metadata_path: Path, max_rows: Optional[int] = None) -> Tuple[List[str], List[Dict[str, str]]]:
+    def _read_tabular_rows(
+        metadata_path: Path, max_rows: Optional[int] = None
+    ) -> Tuple[List[str], List[Dict[str, str]]]:
         """Reads headers and row dictionaries from CSV, TSV, or XLSX files."""
         path = Path(metadata_path)
         if not path.exists():
@@ -91,7 +93,11 @@ class MetadataParser:
         with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
             sample_text = f.read(4096)
             f.seek(0)
-            if suffix not in [".tsv", ".tab", ".csv"] and "\t" in sample_text and "," not in sample_text:
+            if (
+                suffix not in [".tsv", ".tab", ".csv"]
+                and "\t" in sample_text
+                and "," not in sample_text
+            ):
                 delimiter = "\t"
             reader = csv.DictReader(f, delimiter=delimiter)
             headers = [h.strip() for h in (reader.fieldnames or []) if h is not None]
@@ -109,7 +115,9 @@ class MetadataParser:
             return headers, dict_rows
 
     @classmethod
-    def read_preview(cls, metadata_path: Path, max_rows: int = 25) -> Tuple[List[str], List[List[str]]]:
+    def read_preview(
+        cls, metadata_path: Path, max_rows: int = 25
+    ) -> Tuple[List[str], List[List[str]]]:
         """
         Reads column headers and up to `max_rows` rows as lists of strings for GUI table preview.
         """
@@ -175,7 +183,8 @@ class MetadataParser:
         if not chosen_morpho:
             for col in columns:
                 if col != chosen_sample and any(
-                    k in col.lower() for k in ("morpho", "species", "taxon", "genus", "name", "ident")
+                    k in col.lower()
+                    for k in ("morpho", "species", "taxon", "genus", "name", "ident")
                 ):
                     chosen_morpho = col
                     break

@@ -6,6 +6,7 @@ import gzip
 import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
+
 from Bio import SeqIO
 
 logger = logging.getLogger("barcoid.parsers.fasta")
@@ -36,7 +37,9 @@ class FastaParser:
                 if seq:
                     records.append((hdr, seq))
                     if max_sequences and len(records) >= max_sequences:
-                        logger.info(f"Capped input at {max_sequences} sequences (max_sequences limit reached).")
+                        logger.info(
+                            f"Capped input at {max_sequences} sequences (max_sequences limit reached)."
+                        )
                         break
 
         logger.info(f"Loaded {len(records)} sequence(s) from {fasta_path.name}")
@@ -58,4 +61,3 @@ class FastaParser:
             "mean_len": round(sum(lengths) / len(lengths), 1),
             "ambiguous_count": amb_count,
         }
-

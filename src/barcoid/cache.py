@@ -77,4 +77,3 @@ class CacheManager:
     def set_gbif(self, taxon_name: str, result: Dict[str, Any]):
         """Caches GBIF species match result for a taxon name."""
         self.gbif_cache[taxon_name.strip().lower()] = result
-

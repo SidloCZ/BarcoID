@@ -5,7 +5,8 @@ BOLD Systems v5 REST API client with batching, polling, rate limiting, and disk 
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
+
 import requests
 
 from barcoid.cache import CacheManager
@@ -23,9 +24,7 @@ class BoldEngine:
         self.cache_manager = cache_manager
         self.rate_limiter = RateLimiter(min_interval_seconds=config.bold_delay_between_batches)
 
-    def identify_sequences(
-        self, sequences: List[Tuple[str, str]]
-    ) -> Dict[str, Dict[str, Any]]:
+    def identify_sequences(self, sequences: List[Tuple[str, str]]) -> Dict[str, Dict[str, Any]]:
         """
         Identifies a list of (header, sequence) tuples via BOLD Systems v5 REST API.
         Uses cached results when available to minimize network load.
@@ -71,11 +70,11 @@ class BoldEngine:
             fasta_body = "".join(f">{hdr}\n{seq}\n" for hdr, seq, _ in chunk)
             files = {"fasta_file": ("batch.fas", fasta_body, "text/plain")}
 
-            def _submit():
+            def _submit(f=files):
                 resp = requests.post(
                     self.config.bold_api_url,
                     params=params,
-                    files=files,
+                    files=f,
                     headers=headers,
                     timeout=60,
                 )
@@ -100,7 +99,7 @@ class BoldEngine:
 
                 # Poll for batch results
                 poll_results = self._poll_results(sub_id, headers, len(chunk))
-                for hdr, seq, seq_hash in chunk:
+                for hdr, seq, _seq_hash in chunk:
                     res_obj = poll_results.get(hdr) or self._empty_result()
                     self.cache_manager.set_bold(seq, res_obj)
                     results[hdr] = res_obj
@@ -157,22 +156,24 @@ class BoldEngine:
             pident = 100.0 - pdist if pdist is not None else 0.0
             tax = hit_val.get("taxonomy", {})
 
-            parsed_hits.append({
-                "process_id": proc_id,
-                "bin_uri": bin_uri,
-                "pct_identity": round(pident, 2),
-                "bitscore": hit_val.get("bitscore", 0),
-                "evalue": hit_val.get("evalue"),
-                "overlap": hit_val.get("overlap", 0),
-                "mismatch": hit_val.get("mismatch", 0),
-                "phylum": tax.get("phylum", ""),
-                "class": tax.get("class", ""),
-                "order": tax.get("order", ""),
-                "family": tax.get("family", ""),
-                "subfamily": tax.get("subfamily", ""),
-                "genus": tax.get("genus", ""),
-                "species": tax.get("species", ""),
-            })
+            parsed_hits.append(
+                {
+                    "process_id": proc_id,
+                    "bin_uri": bin_uri,
+                    "pct_identity": round(pident, 2),
+                    "bitscore": hit_val.get("bitscore", 0),
+                    "evalue": hit_val.get("evalue"),
+                    "overlap": hit_val.get("overlap", 0),
+                    "mismatch": hit_val.get("mismatch", 0),
+                    "phylum": tax.get("phylum", ""),
+                    "class": tax.get("class", ""),
+                    "order": tax.get("order", ""),
+                    "family": tax.get("family", ""),
+                    "subfamily": tax.get("subfamily", ""),
+                    "genus": tax.get("genus", ""),
+                    "species": tax.get("species", ""),
+                }
+            )
 
         top_hit = parsed_hits[0] if parsed_hits else {}
         top_genus = top_hit.get("genus", "")
@@ -221,4 +222,3 @@ class BoldEngine:
             results[hdr] = res
             self.cache_manager.set_bold(seq, res)
         self.cache_manager.save()
-

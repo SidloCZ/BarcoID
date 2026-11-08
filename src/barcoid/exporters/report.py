@@ -36,13 +36,15 @@ class ReportExporter:
             pct = (cnt / total * 100.0) if total > 0 else 0.0
             lines.append(f"| **`{status}`** | {cnt} | {pct:.1f}% |")
 
-        lines.extend([
-            "",
-            "## 2. Quality Control & Discrepancy Flags",
-            "",
-            "| QC Flag | Count | Interpretation |",
-            "| :--- | :--- | :--- |",
-        ])
+        lines.extend(
+            [
+                "",
+                "## 2. Quality Control & Discrepancy Flags",
+                "",
+                "| QC Flag | Count | Interpretation |",
+                "| :--- | :--- | :--- |",
+            ]
+        )
 
         flag_meanings = {
             "OK": "Consistent authentic barcode",
@@ -59,15 +61,21 @@ class ReportExporter:
             lines.append(f"| **`{flag}`** | {cnt} | {meaning} |")
 
         # Discrepancy highlights
-        alerts = [r for r in rows if r.get("concordance_status") == "MISMATCH_ALERT" or r.get("qc_flag") != "OK"]
+        alerts = [
+            r
+            for r in rows
+            if r.get("concordance_status") == "MISMATCH_ALERT" or r.get("qc_flag") != "OK"
+        ]
         if alerts:
-            lines.extend([
-                "",
-                "## 3. Flagged Specimens (Discrepancy Highlights)",
-                "",
-                "| Sample ID | Field ID | BOLD Match | NCBI Match | QC Flag |",
-                "| :--- | :--- | :--- | :--- | :--- |",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "## 3. Flagged Specimens (Discrepancy Highlights)",
+                    "",
+                    "| Sample ID | Field ID | BOLD Match | NCBI Match | QC Flag |",
+                    "| :--- | :--- | :--- | :--- | :--- |",
+                ]
+            )
             for a in alerts[:50]:  # Top 50 highlights
                 meta = a.get("meta", {})
                 bold = a.get("bold", {})
@@ -82,4 +90,3 @@ class ReportExporter:
         lines.append("")
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
-

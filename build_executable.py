@@ -48,8 +48,6 @@ def build_executable(windowed: bool = True, name: str = "BarcoID") -> int:
         name,
         "--paths",
         str(root_dir / "src"),
-        "--icon",
-        str(ico_asset),
         "--add-data",
         f"{assets_dir}{sep}barcoid/assets",
         "--hidden-import",
@@ -64,7 +62,12 @@ def build_executable(windowed: bool = True, name: str = "BarcoID") -> int:
         "urllib3",
     ]
 
-    if windowed:
+    # Platform-specific icon: Windows accepts .ico, macOS requires .icns
+    if sys.platform.startswith("win") and ico_asset.exists():
+        cmd.extend(["--icon", str(ico_asset)])
+
+    # On Windows, suppress the background terminal console for a clean GUI experience
+    if windowed and sys.platform.startswith("win"):
         cmd.append("--windowed")
 
     cmd.append(str(entry_script))
@@ -98,4 +101,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

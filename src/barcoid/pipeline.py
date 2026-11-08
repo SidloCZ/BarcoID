@@ -112,7 +112,9 @@ class BarcoIDPipeline:
         uncached_ncbi = sum(1 for _, seq in sequences if not self.cache_manager.get_ncbi(seq))
         warning = PacingAdvisor.audit_workload(
             uncached_ncbi,
-            has_local_db=bool(self.config.local_blast_db and Path(self.config.local_blast_db).exists()),
+            has_local_db=bool(
+                self.config.local_blast_db and Path(self.config.local_blast_db).exists()
+            ),
         )
         if warning:
             logger.warning("=" * 70)
@@ -180,8 +182,12 @@ class BarcoIDPipeline:
         _notify("Finalizing GBIF Taxonomic Backbone harmonization...", 82.0)
         candidate_names = []
         for hdr, _ in sequences:
-            b_tax = bold_results.get(hdr, {}).get("top_species") or bold_results.get(hdr, {}).get("top_genus")
-            n_tax = ncbi_results.get(hdr, {}).get("top_species") or ncbi_results.get(hdr, {}).get("top_genus")
+            b_tax = bold_results.get(hdr, {}).get("top_species") or bold_results.get(hdr, {}).get(
+                "top_genus"
+            )
+            n_tax = ncbi_results.get(hdr, {}).get("top_species") or ncbi_results.get(hdr, {}).get(
+                "top_genus"
+            )
             if b_tax and b_tax not in gbif_results:
                 candidate_names.append(b_tax)
             if n_tax and n_tax not in gbif_results:
@@ -199,25 +205,31 @@ class BarcoIDPipeline:
             b_res = bold_results.get(hdr, {})
             n_res = ncbi_results.get(hdr, {})
 
-            target_name = b_res.get("top_species") or n_res.get("top_species") or b_res.get("top_genus") or ""
+            target_name = (
+                b_res.get("top_species") or n_res.get("top_species") or b_res.get("top_genus") or ""
+            )
             g_res = gbif_results.get(target_name, {})
 
             c_genus, c_species, status, conf = self.concordance_engine.evaluate(
                 parsed_meta["field_inferred_genus"], b_res, n_res, g_res
             )
-            qc_flag = self.qc_auditor.audit(parsed_meta["field_inferred_genus"], b_res, n_res, status)
+            qc_flag = self.qc_auditor.audit(
+                parsed_meta["field_inferred_genus"], b_res, n_res, status
+            )
 
-            rows.append({
-                "meta": parsed_meta,
-                "bold": b_res,
-                "ncbi": n_res,
-                "gbif": g_res,
-                "consensus_genus": c_genus,
-                "consensus_species": c_species,
-                "concordance_status": status,
-                "confidence_score": conf,
-                "qc_flag": qc_flag,
-            })
+            rows.append(
+                {
+                    "meta": parsed_meta,
+                    "bold": b_res,
+                    "ncbi": n_res,
+                    "gbif": g_res,
+                    "consensus_genus": c_genus,
+                    "consensus_species": c_species,
+                    "concordance_status": status,
+                    "confidence_score": conf,
+                    "qc_flag": qc_flag,
+                }
+            )
 
         # 7. Export outputs
         out_dir = Path(self.config.output_dir)

@@ -4,7 +4,8 @@ Unit tests for RateLimiter and PacingAdvisor.
 
 import time
 import unittest
-from barcoid.engines.rate_limiter import RateLimiter, PacingAdvisor
+
+from barcoid.engines.rate_limiter import PacingAdvisor, RateLimiter
 
 
 class TestRateLimiter(unittest.TestCase):
@@ -36,4 +37,3 @@ class TestRateLimiter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

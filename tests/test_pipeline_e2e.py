@@ -28,43 +28,53 @@ class TestPipelineE2E(unittest.TestCase):
 
         # Pre-seed cache with test sequences
         seq1 = "ATCGATCGATCGATCG"
-        seq2 = "GGGTTTCCCAAAGGG"
 
-        pipeline.cache_manager.set_bold(seq1, {
-            "has_match": True,
-            "hit_count": 1,
-            "top_genus": "Pheidole",
-            "top_species": "Pheidole oceanica",
-            "top_pct_identity": 99.5,
-            "top_bin": "BOLD:AAA1111",
-            "top_process_id": "TEST_001",
-            "all_hits": [],
-        })
-        pipeline.cache_manager.set_ncbi(seq1, {
-            "has_match": True,
-            "hit_count": 1,
-            "top_title": "Pheidole oceanica COI",
-            "top_accession": "AB123456",
-            "top_genus": "Pheidole",
-            "top_species": "Pheidole oceanica",
-            "top_pct_identity": 99.4,
-            "top_evalue": 0.0,
-            "top_bitscore": 120.0,
-            "all_hits": [],
-        })
-        pipeline.cache_manager.set_gbif("Pheidole oceanica", {
-            "usageKey": 12345,
-            "canonicalName": "Pheidole oceanica",
-            "rank": "SPECIES",
-            "status": "ACCEPTED",
-            "confidence": 99,
-        })
+        pipeline.cache_manager.set_bold(
+            seq1,
+            {
+                "has_match": True,
+                "hit_count": 1,
+                "top_genus": "Pheidole",
+                "top_species": "Pheidole oceanica",
+                "top_pct_identity": 99.5,
+                "top_bin": "BOLD:AAA1111",
+                "top_process_id": "TEST_001",
+                "all_hits": [],
+            },
+        )
+        pipeline.cache_manager.set_ncbi(
+            seq1,
+            {
+                "has_match": True,
+                "hit_count": 1,
+                "top_title": "Pheidole oceanica COI",
+                "top_accession": "AB123456",
+                "top_genus": "Pheidole",
+                "top_species": "Pheidole oceanica",
+                "top_pct_identity": 99.4,
+                "top_evalue": 0.0,
+                "top_bitscore": 120.0,
+                "all_hits": [],
+            },
+        )
+        pipeline.cache_manager.set_gbif(
+            "Pheidole oceanica",
+            {
+                "usageKey": 12345,
+                "canonicalName": "Pheidole oceanica",
+                "rank": "SPECIES",
+                "status": "ACCEPTED",
+                "confidence": 99,
+            },
+        )
         pipeline.cache_manager.save()
 
         # Write test FASTA file
         fasta_path = self.work_dir / "test_barcodes.fasta"
         with open(fasta_path, "w", encoding="utf-8") as f:
-            f.write(f">MJB0001426_MJB016_redo3_Valavahalo_2017_PHEI01_GUA0444;313;41;ambs=0;estgaps=0\n{seq1}\n")
+            f.write(
+                f">MJB0001426_MJB016_redo3_Valavahalo_2017_PHEI01_GUA0444;313;41;ambs=0;estgaps=0\n{seq1}\n"
+            )
 
         # Run pipeline
         rows = pipeline.run(fasta_path)

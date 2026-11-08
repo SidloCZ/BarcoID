@@ -45,4 +45,3 @@ class OntbarcoderParser:
             "ambiguities": ambs,
             "est_gaps": estgaps,
         }
-

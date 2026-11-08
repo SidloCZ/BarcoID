@@ -39,16 +39,16 @@ from barcoid.pipeline import BarcoIDPipeline
 # Strict High-Contrast Palette: Pure White (#FFFFFF) + Pure Black (#111111) + Green (#4C9E45)
 # Plus subtle alert tint (#FDECEC) used exclusively for MISMATCH_ALERT / non-OK QC single cells.
 PALETTE = {
-    "bg_canvas": "#FFFFFF",       # Pure white background
-    "card_outer": "#FFFFFF",      # Pure white container
-    "card_inner": "#FFFFFF",      # Pure white surface
-    "border": "#111111",          # Crisp high-contrast black border
-    "primary": "#4C9E45",         # Brand accent green
-    "primary_hover": "#3B8235",   # Hover green
-    "primary_tint": "#EAF4E9",    # Soft green tint (always paired with #111111 text)
-    "alert_tint": "#FDECEC",      # Soft alert cell highlight for MISMATCH_ALERT / QC flags
-    "text_dark": "#111111",       # High-contrast black text everywhere on light surfaces
-    "text_muted": "#111111",      # No gray text: secondary labels also use crisp #111111
+    "bg_canvas": "#FFFFFF",  # Pure white background
+    "card_outer": "#FFFFFF",  # Pure white container
+    "card_inner": "#FFFFFF",  # Pure white surface
+    "border": "#111111",  # Crisp high-contrast black border
+    "primary": "#4C9E45",  # Brand accent green
+    "primary_hover": "#3B8235",  # Hover green
+    "primary_tint": "#EAF4E9",  # Soft green tint (always paired with #111111 text)
+    "alert_tint": "#FDECEC",  # Soft alert cell highlight for MISMATCH_ALERT / QC flags
+    "text_dark": "#111111",  # High-contrast black text everywhere on light surfaces
+    "text_muted": "#111111",  # No gray text: secondary labels also use crisp #111111
 }
 
 # Strictly 3 Font Styles Across the Entire Application
@@ -139,12 +139,15 @@ def _rgba_to_png(w: int, h: int, rgba_bytes: bytearray) -> bytes:
         )
 
     ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", compressed) + chunk(b"IEND", b"")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", compressed)
+        + chunk(b"IEND", b"")
+    )
 
 
-def render_arrow_photo(
-    direction: str, size: int, color_hex: str
-) -> tk.PhotoImage:
+def render_arrow_photo(direction: str, size: int, color_hex: str) -> tk.PhotoImage:
     """
     Renders `assets/arrow_right.svg` or `assets/arrow_left.svg` with smooth analytical
     anti-aliasing and full alpha transparency (RGBA PNG).
@@ -313,8 +316,14 @@ def render_checkbox_photo(checked: bool, size: int) -> tk.PhotoImage:
             dx = max(0.0, max(box_pad + box_r - px, px - (size - box_pad - box_r)))
             dy = max(0.0, max(box_pad + box_r - py, py - (size - box_pad - box_r)))
             corner_dist = math.hypot(dx, dy)
-            in_rect = px >= box_pad and px <= size - box_pad and py >= box_pad and py <= size - box_pad
-            box_alpha = max(0.0, min(1.0, (box_r + 0.5) - corner_dist)) if (dx > 0 and dy > 0) else (1.0 if in_rect else 0.0)
+            in_rect = (
+                px >= box_pad and px <= size - box_pad and py >= box_pad and py <= size - box_pad
+            )
+            box_alpha = (
+                max(0.0, min(1.0, (box_r + 0.5) - corner_dist))
+                if (dx > 0 and dy > 0)
+                else (1.0 if in_rect else 0.0)
+            )
 
             if box_alpha <= 0.0:
                 continue
@@ -334,7 +343,9 @@ def render_checkbox_photo(checked: bool, size: int) -> tk.PhotoImage:
                 buf[idx + 3] = int(box_alpha * 255 + 0.5)
             else:
                 # Neutral border (#111111)
-                d_edge = min(px - box_pad, (size - box_pad) - px, py - box_pad, (size - box_pad) - py)
+                d_edge = min(
+                    px - box_pad, (size - box_pad) - px, py - box_pad, (size - box_pad) - py
+                )
                 border_a = max(0.0, min(1.0, (1.5 * scale + 0.5) - d_edge))
                 a = min(box_alpha, border_a)
                 if a > 0.0:
@@ -346,7 +357,9 @@ def render_checkbox_photo(checked: bool, size: int) -> tk.PhotoImage:
     return tk.PhotoImage(data=_rgba_to_png(size, size, buf))
 
 
-def render_check_circle_photo(size: int, bg_hex: str, circle_hex: str, check_hex: str) -> tk.PhotoImage:
+def render_check_circle_photo(
+    size: int, bg_hex: str, circle_hex: str, check_hex: str
+) -> tk.PhotoImage:
     """
     Renders `assets/check_circle.svg` (filled anti-aliased circle + rounded-cap checkmark)
     onto a tk.PhotoImage of `size x size` pixels.
@@ -526,7 +539,9 @@ class ModernScrollbar(tk.Canvas):
         h = max(1, self.winfo_height())
 
         span = self.last - self.first
-        thumb_color = PALETTE["primary_hover"] if (self.hover or self.dragging) else PALETTE["primary"]
+        thumb_color = (
+            PALETTE["primary_hover"] if (self.hover or self.dragging) else PALETTE["primary"]
+        )
         if span >= 0.999:
             thumb_color = PALETTE["primary_tint"]
 
@@ -937,23 +952,73 @@ class BarcoIDApp:
 
     def _draw_4streams_icon(self, canvas: tk.Canvas):
         """Renders the 4-streams-knotting-together vector icon onto the header canvas."""
-        canvas.create_oval(2, 2, 46, 46, fill=PALETTE["primary_tint"], outline=PALETTE["primary"], width=2)
+        canvas.create_oval(
+            2, 2, 46, 46, fill=PALETTE["primary_tint"], outline=PALETTE["primary"], width=2
+        )
 
         canvas.create_line(
-            9, 12, 20, 13, 25, 31, 33, 24, 40, 24,
-            fill=PALETTE["text_dark"], width=2.4, smooth=True, capstyle="round"
+            9,
+            12,
+            20,
+            13,
+            25,
+            31,
+            33,
+            24,
+            40,
+            24,
+            fill=PALETTE["text_dark"],
+            width=2.4,
+            smooth=True,
+            capstyle="round",
         )
         canvas.create_line(
-            9, 36, 20, 35, 25, 17, 33, 24, 40, 24,
-            fill=PALETTE["text_dark"], width=2.4, smooth=True, capstyle="round"
+            9,
+            36,
+            20,
+            35,
+            25,
+            17,
+            33,
+            24,
+            40,
+            24,
+            fill=PALETTE["text_dark"],
+            width=2.4,
+            smooth=True,
+            capstyle="round",
         )
         canvas.create_line(
-            9, 20, 19, 20, 25, 15, 31, 24, 40, 24,
-            fill=PALETTE["primary"], width=2.8, smooth=True, capstyle="round"
+            9,
+            20,
+            19,
+            20,
+            25,
+            15,
+            31,
+            24,
+            40,
+            24,
+            fill=PALETTE["primary"],
+            width=2.8,
+            smooth=True,
+            capstyle="round",
         )
         canvas.create_line(
-            9, 28, 19, 28, 25, 33, 31, 24, 40, 24,
-            fill=PALETTE["primary"], width=2.8, smooth=True, capstyle="round"
+            9,
+            28,
+            19,
+            28,
+            25,
+            33,
+            31,
+            24,
+            40,
+            24,
+            fill=PALETTE["primary"],
+            width=2.8,
+            smooth=True,
+            capstyle="round",
         )
 
         for y_pos, col in [
@@ -964,7 +1029,9 @@ class BarcoIDApp:
         ]:
             canvas.create_oval(6.5, y_pos - 2.5, 11.5, y_pos + 2.5, fill=col, outline="")
 
-        canvas.create_oval(22.5, 20.5, 29.5, 27.5, fill=PALETTE["card_inner"], outline=PALETTE["primary"], width=2)
+        canvas.create_oval(
+            22.5, 20.5, 29.5, 27.5, fill=PALETTE["card_inner"], outline=PALETTE["primary"], width=2
+        )
         canvas.create_oval(37, 20.5, 44, 27.5, fill=PALETTE["primary"], outline="")
 
     def _build_layout(self):
@@ -1093,13 +1160,21 @@ class BarcoIDApp:
 
         # FASTA File
         tk.Label(
-            form, text="Input FASTA File:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            form,
+            text="Input FASTA File:",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).grid(row=0, column=0, sticky="w", padx=(0, 14), pady=8)
 
         tk.Entry(
-            form, textvariable=self.fasta_var, font=FONT_BODY,
-            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], relief="solid", bd=1
+            form,
+            textvariable=self.fasta_var,
+            font=FONT_BODY,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            relief="solid",
+            bd=1,
         ).grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=8, ipady=6)
 
         self._make_button(form, "Browse FASTA", self.browse_fasta, primary=True).grid(
@@ -1108,13 +1183,21 @@ class BarcoIDApp:
 
         # Output Folder
         tk.Label(
-            form, text="Output Folder:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            form,
+            text="Output Folder:",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).grid(row=1, column=0, sticky="w", padx=(0, 14), pady=8)
 
         tk.Entry(
-            form, textvariable=self.output_dir_var, font=FONT_BODY,
-            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], relief="solid", bd=1
+            form,
+            textvariable=self.output_dir_var,
+            font=FONT_BODY,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            relief="solid",
+            bd=1,
         ).grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=8, ipady=6)
 
         self._make_button(form, "Browse Folder", self.browse_output_dir, primary=False).grid(
@@ -1123,8 +1206,11 @@ class BarcoIDApp:
 
         # Target Taxon
         tk.Label(
-            form, text="Target Taxon Filter:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            form,
+            text="Target Taxon Filter:",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).grid(row=2, column=0, sticky="w", padx=(0, 14), pady=8)
 
         taxon_row = tk.Frame(form, bg=PALETTE["card_inner"])
@@ -1133,20 +1219,37 @@ class BarcoIDApp:
         taxon_combo = ttk.Combobox(
             taxon_row,
             textvariable=self.taxon_var,
-            values=["Formicidae", "Hymenoptera", "Insecta", "Arthropoda", "Animalia", "Fungi", "Plantae"],
+            values=[
+                "Formicidae",
+                "Hymenoptera",
+                "Insecta",
+                "Arthropoda",
+                "Animalia",
+                "Fungi",
+                "Plantae",
+            ],
             width=20,
             font=FONT_BODY,
         )
         taxon_combo.pack(side="left", padx=(0, 20))
 
         tk.Label(
-            taxon_row, text="Max Sequences (optional):", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            taxon_row,
+            text="Max Sequences (optional):",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).pack(side="left", padx=(0, 8))
 
         tk.Entry(
-            taxon_row, textvariable=self.max_seq_var, width=10, font=FONT_BODY,
-            bg=PALETTE["card_inner"], fg=PALETTE["text_dark"], relief="solid", bd=1
+            taxon_row,
+            textvariable=self.max_seq_var,
+            width=10,
+            font=FONT_BODY,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            relief="solid",
+            bd=1,
         ).pack(side="left", ipady=4)
 
         # Checkboxes
@@ -1196,7 +1299,11 @@ class BarcoIDApp:
         footer1.pack(side="bottom", fill="x", pady=(16, 0))
 
         self._make_button(
-            footer1, "Next: Metadata Column  ", lambda: self.show_step(1), primary=True, arrow="right"
+            footer1,
+            "Next: Metadata Column  ",
+            lambda: self.show_step(1),
+            primary=True,
+            arrow="right",
         ).pack(side="right")
 
     # ------------------------------------------------------------------
@@ -1227,18 +1334,24 @@ class BarcoIDApp:
         top_controls.pack(fill="x", pady=(0, 8))
 
         self._make_button(
-            top_controls, "Choose Metadata File (.csv / .tsv / .xlsx)", self.browse_metadata, primary=True
+            top_controls,
+            "Choose Metadata File (.csv / .tsv / .xlsx)",
+            self.browse_metadata,
+            primary=True,
         ).pack(side="left", padx=(0, 8))
 
-        self._make_button(
-            top_controls, "Clear Metadata", self.clear_metadata, primary=False
-        ).pack(side="left")
+        self._make_button(top_controls, "Clear Metadata", self.clear_metadata, primary=False).pack(
+            side="left"
+        )
 
         mode_box = tk.Frame(top_controls, bg=PALETTE["card_inner"])
         mode_box.pack(side="right")
         tk.Label(
-            mode_box, text="Header Click Sets:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            mode_box,
+            text="Header Click Sets:",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).pack(side="left", padx=(0, 10))
         tk.Radiobutton(
             mode_box,
@@ -1286,8 +1399,11 @@ class BarcoIDApp:
         col_selectors.columnconfigure(3, weight=1)
 
         tk.Label(
-            col_selectors, text="Morphospecies Column:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            col_selectors,
+            text="Morphospecies Column:",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
 
         self.morpho_combo = ttk.Combobox(
@@ -1297,8 +1413,11 @@ class BarcoIDApp:
         self.morpho_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_column_badges())
 
         tk.Label(
-            col_selectors, text="Sample ID Column:", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            col_selectors,
+            text="Sample ID Column:",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).grid(row=0, column=2, sticky="w", padx=(0, 8), pady=2)
 
         self.sample_combo = ttk.Combobox(
@@ -1341,7 +1460,10 @@ class BarcoIDApp:
 
         # Interactive Spreadsheet Preview Table with ModernScrollbars
         table_wrap = tk.Frame(
-            page, bg=PALETTE["card_inner"], highlightbackground=PALETTE["border"], highlightthickness=1
+            page,
+            bg=PALETTE["card_inner"],
+            highlightbackground=PALETTE["border"],
+            highlightthickness=1,
         )
         table_wrap.pack(fill="both", expand=True)
 
@@ -1441,12 +1563,20 @@ class BarcoIDApp:
                 pady=(0 if r_idx == 0 else 8, 0),
             )
             t_lbl = tk.Label(
-                card, text=title, font=FONT_HEADING, fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+                card,
+                text=title,
+                font=FONT_HEADING,
+                fg=PALETTE["text_dark"],
+                bg=PALETTE["card_inner"],
             )
             t_lbl.pack(side="left")
 
             s_lbl = tk.Label(
-                card, text="Idle", font=FONT_HEADING, fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+                card,
+                text="Idle",
+                font=FONT_HEADING,
+                fg=PALETTE["text_dark"],
+                bg=PALETTE["card_inner"],
             )
             s_lbl.pack(side="right")
 
@@ -1478,13 +1608,20 @@ class BarcoIDApp:
 
         self.stage_var = tk.StringVar(value="Ready — Click Run Identification to start.")
         tk.Label(
-            prog_wrap, textvariable=self.stage_var, font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"], anchor="w"
+            prog_wrap,
+            textvariable=self.stage_var,
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+            anchor="w",
         ).pack(fill="x")
 
         self.progress_var = tk.DoubleVar(value=0.0)
         self.progress_bar = ttk.Progressbar(
-            prog_wrap, variable=self.progress_var, maximum=100.0, style="Green.Horizontal.TProgressbar"
+            prog_wrap,
+            variable=self.progress_var,
+            maximum=100.0,
+            style="Green.Horizontal.TProgressbar",
         )
         self.progress_bar.pack(fill="x", pady=(6, 0))
 
@@ -1493,7 +1630,11 @@ class BarcoIDApp:
         footer3.pack(side="bottom", fill="x", pady=(12, 0))
 
         self._make_button(
-            footer3, "  Back: Metadata Column", lambda: self.show_step(1), primary=False, arrow="left"
+            footer3,
+            "  Back: Metadata Column",
+            lambda: self.show_step(1),
+            primary=False,
+            arrow="left",
         ).pack(side="left")
 
         self.to_results_btn = self._make_button(
@@ -1612,13 +1753,14 @@ class BarcoIDApp:
 
         # Scrollable Canvas Grid with ModernScrollbars
         grid_wrap = tk.Frame(
-            page, bg=PALETTE["card_inner"], highlightbackground=PALETTE["border"], highlightthickness=1
+            page,
+            bg=PALETTE["card_inner"],
+            highlightbackground=PALETTE["border"],
+            highlightthickness=1,
         )
         grid_wrap.pack(fill="both", expand=True)
 
-        self.results_canvas = tk.Canvas(
-            grid_wrap, bg=PALETTE["card_inner"], highlightthickness=0
-        )
+        self.results_canvas = tk.Canvas(grid_wrap, bg=PALETTE["card_inner"], highlightthickness=0)
         res_vsb = ModernScrollbar(grid_wrap, orient="vertical", command=self.results_canvas.yview)
         res_hsb = ModernScrollbar(grid_wrap, orient="horizontal", command=self.results_canvas.xview)
         self.results_canvas.configure(yscrollcommand=res_vsb.set, xscrollcommand=res_hsb.set)
@@ -1754,19 +1896,21 @@ class BarcoIDApp:
             bold_pct = bold.get("top_pct_identity", 0.0)
             ncbi_pct = ncbi.get("top_pct_identity", 0.0)
 
-            self.results_matrix.append([
-                str(meta.get("sample_id", "")),
-                str(meta.get("field_morpho_code", "")),
-                str(meta.get("field_inferred_genus", "")),
-                str(bold.get("top_species") or bold.get("top_genus") or ""),
-                f"{bold_pct:.1f}" if bold_pct else "",
-                str(ncbi.get("top_species") or ncbi.get("top_genus") or ""),
-                f"{ncbi_pct:.1f}" if ncbi_pct else "",
-                str(gbif.get("canonicalName", "")),
-                str(r.get("consensus_species") or r.get("consensus_genus") or ""),
-                str(r.get("concordance_status", "")),
-                str(r.get("qc_flag", "")),
-            ])
+            self.results_matrix.append(
+                [
+                    str(meta.get("sample_id", "")),
+                    str(meta.get("field_morpho_code", "")),
+                    str(meta.get("field_inferred_genus", "")),
+                    str(bold.get("top_species") or bold.get("top_genus") or ""),
+                    f"{bold_pct:.1f}" if bold_pct else "",
+                    str(ncbi.get("top_species") or ncbi.get("top_genus") or ""),
+                    f"{ncbi_pct:.1f}" if ncbi_pct else "",
+                    str(gbif.get("canonicalName", "")),
+                    str(r.get("consensus_species") or r.get("consensus_genus") or ""),
+                    str(r.get("concordance_status", "")),
+                    str(r.get("qc_flag", "")),
+                ]
+            )
 
         self.reset_results_column_widths()
 
@@ -1782,8 +1926,13 @@ class BarcoIDApp:
         for col_idx, col_name in enumerate(RESULTS_COLUMNS):
             w = self.results_col_widths[col_idx]
             c.create_rectangle(
-                x_offset, 0, x_offset + w, row_h,
-                fill=PALETTE["primary_tint"], outline=PALETTE["border"], width=1
+                x_offset,
+                0,
+                x_offset + w,
+                row_h,
+                fill=PALETTE["primary_tint"],
+                outline=PALETTE["border"],
+                width=1,
             )
             clipped_hdr = self._fit_text_to_width(col_name, w, is_bold=True)
             c.create_text(
@@ -1821,8 +1970,7 @@ class BarcoIDApp:
                 bg_hex, fg_hex, is_bold = get_cell_highlight(col_name, val_str)
 
                 c.create_rectangle(
-                    x_pos, y0, x_pos + w, y1,
-                    fill=bg_hex, outline=PALETTE["border"], width=1
+                    x_pos, y0, x_pos + w, y1, fill=bg_hex, outline=PALETTE["border"], width=1
                 )
                 clipped_val = self._fit_text_to_width(val_str, w, is_bold=is_bold)
                 c.create_text(
@@ -1862,7 +2010,9 @@ class BarcoIDApp:
         if border_idx is not None:
             self.results_canvas.configure(cursor="sb_h_double_arrow")
         else:
-            self.results_canvas.configure(cursor="hand2" if event.y <= max(34, int(34 * self.dpi_scale)) else "")
+            self.results_canvas.configure(
+                cursor="hand2" if event.y <= max(34, int(34 * self.dpi_scale)) else ""
+            )
 
     def _on_results_press(self, event):
         cx = self.results_canvas.canvasx(event.x)
@@ -1964,7 +2114,9 @@ class BarcoIDApp:
                 )
 
         if self.current_step == 2:
-            fasta_name = Path(self.fasta_var.get()).name if self.fasta_var.get().strip() else "None selected"
+            fasta_name = (
+                Path(self.fasta_var.get()).name if self.fasta_var.get().strip() else "None selected"
+            )
             meta_name = (
                 f"{Path(self.metadata_var.get()).name} (Morphospecies: '{self.morpho_col_var.get()}')"
                 if self.metadata_var.get().strip()
@@ -2018,7 +2170,9 @@ class BarcoIDApp:
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
         handler = QueueLogHandler(self.log_queue)
-        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")
+        )
         root_logger.addHandler(handler)
 
     def toggle_terminal_window(self, _event=None):
@@ -2051,17 +2205,30 @@ class BarcoIDApp:
                 pass
 
         # Top title banner
-        banner = tk.Frame(win, bg=PALETTE["primary_tint"], highlightbackground=PALETTE["primary"], highlightthickness=1, padx=20, pady=12)
+        banner = tk.Frame(
+            win,
+            bg=PALETTE["primary_tint"],
+            highlightbackground=PALETTE["primary"],
+            highlightthickness=1,
+            padx=20,
+            pady=12,
+        )
         banner.pack(fill="x", padx=16, pady=14)
 
         tk.Label(
-            banner, text="BarcoID Step-by-Step Guide", font=FONT_TITLE,
-            fg=PALETTE["text_dark"], bg=PALETTE["primary_tint"]
+            banner,
+            text="BarcoID Step-by-Step Guide",
+            font=FONT_TITLE,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["primary_tint"],
         ).pack(side="left")
 
         tk.Label(
-            banner, text="Quick 4-step workflow overview with visual guides", font=FONT_BODY,
-            fg=PALETTE["text_dark"], bg=PALETTE["primary_tint"]
+            banner,
+            text="Quick 4-step workflow overview with visual guides",
+            font=FONT_BODY,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["primary_tint"],
         ).pack(side="right")
 
         # Scrollable container for steps
@@ -2140,18 +2307,31 @@ class BarcoIDApp:
             card.pack(fill="x", pady=(0, 16))
 
             tk.Label(
-                card, text=title, font=FONT_TITLE, fg=PALETTE["primary"], bg=PALETTE["card_inner"], anchor="w"
+                card,
+                text=title,
+                font=FONT_TITLE,
+                fg=PALETTE["primary"],
+                bg=PALETTE["card_inner"],
+                anchor="w",
             ).pack(fill="x", pady=(0, 6))
 
             tk.Label(
-                card, text=desc, font=FONT_BODY, fg=PALETTE["text_dark"], bg=PALETTE["card_inner"], justify="left", anchor="w"
+                card,
+                text=desc,
+                font=FONT_BODY,
+                fg=PALETTE["text_dark"],
+                bg=PALETTE["card_inner"],
+                justify="left",
+                anchor="w",
             ).pack(fill="x", pady=(0, 10))
 
             if img_path.exists():
                 try:
                     photo = tk.PhotoImage(file=str(img_path))
                     win._guide_photos.append(photo)
-                    img_lbl = tk.Label(card, image=photo, bg=PALETTE["card_inner"], relief="solid", bd=1)
+                    img_lbl = tk.Label(
+                        card, image=photo, bg=PALETTE["card_inner"], relief="solid", bd=1
+                    )
                     img_lbl.pack(anchor="center", pady=(0, 6))
                 except Exception:
                     pass
@@ -2177,13 +2357,16 @@ class BarcoIDApp:
         bar.pack(fill="x")
 
         tk.Label(
-            bar, text="Live Execution & Network Diagnostics", font=FONT_HEADING,
-            fg=PALETTE["text_dark"], bg=PALETTE["card_inner"]
+            bar,
+            text="Live Execution & Network Diagnostics",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
         ).pack(side="left")
 
-        self._make_button(
-            bar, "Save Bug Report", self.export_bug_report, primary=True
-        ).pack(side="right")
+        self._make_button(bar, "Save Bug Report", self.export_bug_report, primary=True).pack(
+            side="right"
+        )
 
         self._make_button(
             bar, "Test APIs (BOLD / NCBI / GBIF)", self.run_api_test_async, primary=False
@@ -2208,7 +2391,9 @@ class BarcoIDApp:
 
     def run_api_test_async(self):
         """Runs a live network ping against BOLD, NCBI, and GBIF in a background thread."""
-        logging.info("Testing live connectivity to BOLD Systems v5, NCBI QBLAST, and GBIF Backbone...")
+        logging.info(
+            "Testing live connectivity to BOLD Systems v5, NCBI QBLAST, and GBIF Backbone..."
+        )
 
         def _worker():
             lines = check_api_endpoints()
@@ -2329,7 +2514,9 @@ class BarcoIDApp:
             return
 
         if not headers:
-            messagebox.showwarning("Empty Metadata", "No column headers found in the selected file.")
+            messagebox.showwarning(
+                "Empty Metadata", "No column headers found in the selected file."
+            )
             return
 
         self.metadata_var.set(str(path))
@@ -2401,7 +2588,9 @@ class BarcoIDApp:
             s_val = row[s_idx].strip() if 0 <= s_idx < len(row) else ""
             if m_val:
                 inferred = helper.infer_genus_from_morpho(m_val)
-                genus_note = f"Inferred Genus: {inferred}" if inferred else "Unassigned / Indeterminate"
+                genus_note = (
+                    f"Inferred Genus: {inferred}" if inferred else "Unassigned / Indeterminate"
+                )
                 example_text = f"Preview ({s_val or 'row'}) -> '{m_val}' ({genus_note})"
                 break
 
@@ -2421,7 +2610,9 @@ class BarcoIDApp:
 
         fasta_str = self.fasta_var.get().strip()
         if not fasta_str:
-            messagebox.showwarning("Missing Input", "Please select an input FASTA file in Step 1 first.")
+            messagebox.showwarning(
+                "Missing Input", "Please select an input FASTA file in Step 1 first."
+            )
             self.show_step(0)
             return
 
@@ -2434,7 +2625,9 @@ class BarcoIDApp:
         try:
             config = build_config_from_inputs(
                 fasta_path=fasta_path,
-                output_dir=Path(self.output_dir_var.get().strip()) if self.output_dir_var.get().strip() else None,
+                output_dir=Path(self.output_dir_var.get().strip())
+                if self.output_dir_var.get().strip()
+                else None,
                 taxon=self.taxon_var.get(),
                 max_sequences_str=self.max_seq_var.get(),
                 ncbi_email=self.ncbi_email_var.get(),
@@ -2494,7 +2687,9 @@ class BarcoIDApp:
                 progress_callback=_progress,
                 service_callback=_service,
             )
-            xlsx_path = Path(config.output_dir) / f"{fasta_path.stem}_multi_source_identification.xlsx"
+            xlsx_path = (
+                Path(config.output_dir) / f"{fasta_path.stem}_multi_source_identification.xlsx"
+            )
             self.ui_queue.put(("done", (rows, xlsx_path, config.dry_run)))
         except Exception as exc:
             self.last_error_trace = traceback.format_exc()
@@ -2580,7 +2775,9 @@ class BarcoIDApp:
                     fg="#FFFFFF",
                 )
                 self.stage_var.set(f"Error: {payload}")
-                messagebox.showerror("Execution Error", f"An error occurred during identification:\n{payload}")
+                messagebox.showerror(
+                    "Execution Error", f"An error occurred during identification:\n{payload}"
+                )
 
         self.root.after(100, self._poll_queues)
 

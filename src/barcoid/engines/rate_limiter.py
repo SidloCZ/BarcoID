@@ -2,9 +2,9 @@
 Rate limiting, adaptive pacing, and backoff utilities for BarcoID external APIs.
 """
 
-import time
 import logging
-from typing import Callable, Any, Optional
+import time
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger("barcoid.engines.rate_limiter")
 
@@ -56,7 +56,7 @@ def execute_with_backoff(
                 delay *= backoff_factor
             else:
                 logger.error(f"[{action_name}] All {max_retries} attempts failed: {exc}")
-                raise last_exception
+                raise last_exception from exc
 
 
 class PacingAdvisor:
@@ -82,4 +82,3 @@ class PacingAdvisor:
                 f"Recommendation: Use local BLAST with --local-blast-db <path> or limit pilot testing with --max-sequences <N>."
             )
         return None
-

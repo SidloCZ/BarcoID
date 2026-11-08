@@ -4,6 +4,7 @@ and multi-database sequence matches.
 """
 
 from typing import Any, Dict, Tuple
+
 from barcoid.config import BarcoIDConfig
 
 
@@ -79,7 +80,9 @@ class ConcordanceEngine:
                 confidence = max_pident / 100.0
         else:
             # Field was unassigned (__ / blank)
-            db_mismatch = bool(bold_genus and ncbi_genus and bold_genus.lower() != ncbi_genus.lower())
+            db_mismatch = bool(
+                bold_genus and ncbi_genus and bold_genus.lower() != ncbi_genus.lower()
+            )
             if db_mismatch:
                 status = "MISMATCH_ALERT"
                 confidence = 0.5
@@ -88,4 +91,3 @@ class ConcordanceEngine:
                 confidence = max_pident / 100.0
 
         return consensus_genus, consensus_species, status, round(confidence, 2)
-

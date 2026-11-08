@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+
 from Bio.Blast import NCBIXML
 
 from barcoid.cache import CacheManager
@@ -34,9 +35,7 @@ class LocalBlastEngine:
             return False
         return Path(self.config.local_blast_db).exists()
 
-    def identify_sequences(
-        self, sequences: List[Tuple[str, str]]
-    ) -> Dict[str, Dict[str, Any]]:
+    def identify_sequences(self, sequences: List[Tuple[str, str]]) -> Dict[str, Dict[str, Any]]:
         """
         Runs local blastn on sequences and populates the cache.
         """
@@ -73,11 +72,16 @@ class LocalBlastEngine:
         try:
             cmd = [
                 self.blastn_path,
-                "-query", str(query_path),
-                "-db", str(self.config.local_blast_db),
-                "-outfmt", "5",  # XML format
-                "-max_target_seqs", str(self.config.ncbi_hitlist_size),
-                "-num_threads", str(self.config.local_blast_threads),
+                "-query",
+                str(query_path),
+                "-db",
+                str(self.config.local_blast_db),
+                "-outfmt",
+                "5",  # XML format
+                "-max_target_seqs",
+                str(self.config.ncbi_hitlist_size),
+                "-num_threads",
+                str(self.config.local_blast_threads),
             ]
             if self.config.megablast:
                 cmd.extend(["-task", "megablast"])
@@ -94,7 +98,7 @@ class LocalBlastEngine:
                 self.cache_manager.set_ncbi(orig_seq, res_obj)
                 results[orig_hdr] = res_obj
 
-            for qid, (orig_hdr, orig_seq) in query_map.items():
+            for _qid, (orig_hdr, orig_seq) in query_map.items():
                 if orig_hdr not in results:
                     empty_res = self._empty_result()
                     self.cache_manager.set_ncbi(orig_seq, empty_res)
@@ -129,16 +133,18 @@ class LocalBlastEngine:
                     genus = words[0]
                     species = f"{words[0]} {words[1]}"
 
-            hits.append({
-                "accession": accession,
-                "title": title,
-                "pct_identity": round(pct_id, 2),
-                "evalue": hsp.expect,
-                "bitscore": hsp.bits,
-                "alignment_length": hsp.align_length,
-                "genus": genus,
-                "species": species,
-            })
+            hits.append(
+                {
+                    "accession": accession,
+                    "title": title,
+                    "pct_identity": round(pct_id, 2),
+                    "evalue": hsp.expect,
+                    "bitscore": hsp.bits,
+                    "alignment_length": hsp.align_length,
+                    "genus": genus,
+                    "species": species,
+                }
+            )
 
         top_hit = hits[0] if hits else {}
         return {
@@ -167,4 +173,3 @@ class LocalBlastEngine:
             "top_bitscore": 0.0,
             "all_hits": [],
         }
-

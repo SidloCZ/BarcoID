@@ -4,6 +4,7 @@ low-identity hits, and database conflicts.
 """
 
 from typing import Any, Dict
+
 from barcoid.config import BarcoIDConfig
 
 
@@ -62,4 +63,3 @@ class QcAuditor:
             return "LOW_IDENTITY"
 
         return "OK"
-

@@ -3,9 +3,10 @@ Unit tests for concordance scoring and quality control discrepancy detection.
 """
 
 import unittest
-from barcoid.config import BarcoIDConfig
+
 from barcoid.arbitration.concordance import ConcordanceEngine
 from barcoid.arbitration.qc import QcAuditor
+from barcoid.config import BarcoIDConfig
 
 
 class TestArbitration(unittest.TestCase):
@@ -18,8 +19,16 @@ class TestArbitration(unittest.TestCase):
 
     def test_concordant_assignment(self):
         field_genus = "Pheidole"
-        bold_res = {"top_genus": "Pheidole", "top_species": "Pheidole oceanica", "top_pct_identity": 99.2}
-        ncbi_res = {"top_genus": "Pheidole", "top_species": "Pheidole oceanica", "top_pct_identity": 99.0}
+        bold_res = {
+            "top_genus": "Pheidole",
+            "top_species": "Pheidole oceanica",
+            "top_pct_identity": 99.2,
+        }
+        ncbi_res = {
+            "top_genus": "Pheidole",
+            "top_species": "Pheidole oceanica",
+            "top_pct_identity": 99.0,
+        }
         gbif_res = {"canonicalName": "Pheidole oceanica", "status": "ACCEPTED"}
 
         c_genus, c_species, status, conf = self.concordance.evaluate(
@@ -34,8 +43,16 @@ class TestArbitration(unittest.TestCase):
 
     def test_new_assignment(self):
         field_genus = ""  # Unidentified field specimen
-        bold_res = {"top_genus": "Hypoponera", "top_species": "Hypoponera sp.", "top_pct_identity": 98.5}
-        ncbi_res = {"top_genus": "Hypoponera", "top_species": "Hypoponera sp.", "top_pct_identity": 98.2}
+        bold_res = {
+            "top_genus": "Hypoponera",
+            "top_species": "Hypoponera sp.",
+            "top_pct_identity": 98.5,
+        }
+        ncbi_res = {
+            "top_genus": "Hypoponera",
+            "top_species": "Hypoponera sp.",
+            "top_pct_identity": 98.2,
+        }
         gbif_res = {"canonicalName": "Hypoponera", "status": "ACCEPTED"}
 
         c_genus, c_species, status, conf = self.concordance.evaluate(
@@ -50,8 +67,16 @@ class TestArbitration(unittest.TestCase):
     def test_mismatch_alert_cross_genus(self):
         field_genus = "Technomyrmex"  # Field labeled Technomyrmex
         # Sequences match Pheidole with high identity -> cross-well swap / contamination suspect
-        bold_res = {"top_genus": "Pheidole", "top_species": "Pheidole oceanica", "top_pct_identity": 97.5}
-        ncbi_res = {"top_genus": "Pheidole", "top_species": "Pheidole oceanica", "top_pct_identity": 97.2}
+        bold_res = {
+            "top_genus": "Pheidole",
+            "top_species": "Pheidole oceanica",
+            "top_pct_identity": 97.5,
+        }
+        ncbi_res = {
+            "top_genus": "Pheidole",
+            "top_species": "Pheidole oceanica",
+            "top_pct_identity": 97.2,
+        }
         gbif_res = {"canonicalName": "Pheidole oceanica", "status": "ACCEPTED"}
 
         c_genus, c_species, status, conf = self.concordance.evaluate(
@@ -77,8 +102,16 @@ class TestArbitration(unittest.TestCase):
 
     def test_database_conflict(self):
         field_genus = ""
-        bold_res = {"top_genus": "Camponotus", "top_species": "Camponotus sp.", "top_pct_identity": 98.0}
-        ncbi_res = {"top_genus": "Colobopsis", "top_species": "Colobopsis sp.", "top_pct_identity": 98.0}
+        bold_res = {
+            "top_genus": "Camponotus",
+            "top_species": "Camponotus sp.",
+            "top_pct_identity": 98.0,
+        }
+        ncbi_res = {
+            "top_genus": "Colobopsis",
+            "top_species": "Colobopsis sp.",
+            "top_pct_identity": 98.0,
+        }
         gbif_res = {}
 
         c_genus, c_species, status, conf = self.concordance.evaluate(
@@ -92,4 +125,3 @@ class TestArbitration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
