@@ -4,7 +4,7 @@ Master pipeline orchestrator for BarcoID.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from barcoid.arbitration.concordance import ConcordanceEngine
 from barcoid.arbitration.qc import QcAuditor
@@ -40,21 +40,38 @@ class BarcoIDPipeline:
     def run(
         self,
         fasta_path: Path,
-        metadata_path: Path = None,
+        metadata_path: Optional[Path] = None,
         sample_col: str = "sample_id",
         morpho_col: str = "field_morphospecies",
+        progress_callback: Optional[Callable[[str, float], None]] = None,
     ) -> List[Dict[str, Any]]:
         """Executes the multi-source pipeline end-to-end."""
+
+        def _notify(stage: str, pct: float):
+            if progress_callback:
+                try:
+                    progress_callback(stage, pct)
+                except Exception:
+                    pass
+
+        _notify("Step 1/5: Ingesting FASTA sequences and morphological metadata...", 10.0)
+
         # 1. Ingest sequences
         sequences = FastaParser.read_sequences(fasta_path, max_sequences=self.config.max_sequences)
         if not sequences:
             logger.warning("No sequences found in input file.")
+            _notify("No sequences found in input file.", 100.0)
             return []
 
         # 2. Ingest external metadata if supplied
         meta_parser = None
         if metadata_path and Path(metadata_path).exists():
-            meta_parser = MetadataParser(metadata_path, sample_col=sample_col, morpho_col=morpho_col)
+            meta_parser = MetadataParser(
+                metadata_path,
+                sample_col=sample_col,
+                morpho_col=morpho_col,
+                custom_prefix_map=self.config.custom_prefix_map,
+            )
 
         # 3. Workload safety audit
         uncached_bold = sum(1 for _, seq in sequences if not self.cache_manager.get_bold(seq))
@@ -73,12 +90,19 @@ class BarcoIDPipeline:
                 f"[Dry Run Summary] Total sequences: {len(sequences)}, "
                 f"Uncached BOLD: {uncached_bold}, Uncached NCBI: {uncached_ncbi}"
             )
+            _notify(
+                f"Dry run complete: {len(sequences)} sequence(s) inspected "
+                f"({uncached_bold} uncached BOLD, {uncached_ncbi} uncached NCBI).",
+                100.0,
+            )
             return []
 
         # 4. Engine executions
+        _notify("Step 2/5: Querying BOLD Systems v5 Identification Engine...", 25.0)
         bold_engine = BoldEngine(self.config, self.cache_manager)
         bold_results = bold_engine.identify_sequences(sequences)
 
+        _notify("Step 3/5: Querying NCBI GenBank BLAST...", 55.0)
         if self.config.local_blast_db and Path(self.config.local_blast_db).exists():
             blast_engine = LocalBlastEngine(self.config, self.cache_manager)
             ncbi_results = blast_engine.identify_sequences(sequences)
@@ -87,6 +111,7 @@ class BarcoIDPipeline:
             ncbi_results = remote_engine.identify_sequences(sequences)
 
         # 5. Extract candidate names for GBIF standardization
+        _notify("Step 4/5: Harmonizing taxonomy with GBIF Backbone...", 80.0)
         gbif_engine = GbifEngine(self.config, self.cache_manager)
         candidate_names = []
         for hdr, _ in sequences:
@@ -100,6 +125,7 @@ class BarcoIDPipeline:
         gbif_results = gbif_engine.match_batch(candidate_names)
 
         # 6. Synthesize metadata, evaluate concordance, and run QC
+        _notify("Step 5/5: Computing Concordance Matrix & exporting reports...", 90.0)
         rows: List[Dict[str, Any]] = []
         for hdr, _ in sequences:
             parsed_meta = self.header_parser.parse_header(hdr)
@@ -108,7 +134,11 @@ class BarcoIDPipeline:
 
             # Override/complement with external metadata if available
             if meta_parser:
-                ext_meta = meta_parser.get_metadata(parsed_meta["sample_id"])
+                ext_meta = (
+                    meta_parser.get_metadata(parsed_meta["sample_id"])
+                    or meta_parser.get_metadata(parsed_meta["clean_id"])
+                    or meta_parser.get_metadata(parsed_meta.get("voucher_code", ""))
+                )
                 if ext_meta:
                     if ext_meta.get("field_morpho_code"):
                         parsed_meta["field_morpho_code"] = ext_meta["field_morpho_code"]
@@ -152,10 +182,10 @@ class BarcoIDPipeline:
         TabularExporter.export(rows, tsv_path)
         ReportExporter.export(rows, report_path)
 
-        logger.info(f"Results exported successfully:")
+        logger.info("Results exported successfully:")
         logger.info(f"  - Excel Report: {xlsx_path}")
         logger.info(f"  - Tabular TSV:  {tsv_path}")
         logger.info(f"  - Markdown QC:  {report_path}")
 
+        _notify(f"Completed: {len(rows)} sequence(s) processed and exported.", 100.0)
         return rows
-

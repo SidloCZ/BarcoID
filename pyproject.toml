@@ -51,6 +51,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-mock>=3.11.0",
     "ruff>=0.4.0",
+    "pyinstaller>=6.0.0",
 ]
 all = [
     "barcoid[cli,pandas,dev]",
@@ -59,6 +60,9 @@ all = [
 [project.scripts]
 barcoid = "barcoid.cli:main"
 barco-id = "barcoid.cli:main"
+
+[project.gui-scripts]
+barcoid-gui = "barcoid.gui:launch_gui"
 
 [project.urls]
 Homepage = "https://github.com/SidloCZ/BarcoID"

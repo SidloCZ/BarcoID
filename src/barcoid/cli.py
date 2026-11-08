@@ -1,5 +1,5 @@
 """
-Command-line interface for BarcoID.
+Command-line interface and dual GUI/CLI launcher for BarcoID.
 """
 
 import argparse
@@ -34,17 +34,23 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
+        "--gui",
+        dest="gui",
+        action="store_true",
+        help="Launch the standalone BarcoID Desktop GUI window (default when run with no arguments).",
+    )
+    parser.add_argument(
         "-i", "--input",
         dest="input_fasta",
         type=Path,
-        required=True,
+        required=False,
         help="Path to input FASTA file containing query DNA barcodes.",
     )
     parser.add_argument(
         "-m", "--metadata",
         dest="metadata_file",
         type=Path,
-        help="Optional external CSV/TSV metadata sheet linking vouchers to morphological IDs.",
+        help="Optional external CSV/TSV/XLSX metadata sheet linking vouchers to morphological IDs.",
     )
     parser.add_argument(
         "--sample-col",
@@ -148,9 +154,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(args=None):
-    """Entry point for the BarcoID CLI."""
+    """Entry point for the BarcoID CLI and Desktop GUI."""
+    effective_args = sys.argv[1:] if args is None else list(args)
+
+    # If double-clicked or launched without arguments, open the Desktop GUI
+    if len(effective_args) == 0:
+        from barcoid.gui import launch_gui
+
+        launch_gui()
+        return
+
     parser = build_parser()
-    parsed_args = parser.parse_args(args)
+    parsed_args = parser.parse_args(effective_args)
+
+    if parsed_args.gui:
+        from barcoid.gui import launch_gui
+
+        launch_gui()
+        return
+
+    if not parsed_args.input_fasta:
+        parser.error("the following arguments are required in CLI mode: -i/--input (or run with no arguments to open GUI)")
 
     configure_logging(verbose=parsed_args.verbose)
 

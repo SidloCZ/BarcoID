@@ -20,6 +20,7 @@ build/
 dist/
 *.egg-info/
 .eggs/
+*.spec
 
 # Testing and linting
 .pytest_cache/

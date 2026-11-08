@@ -31,10 +31,23 @@ Rather than relying on a single reference database, BarcoID triangulates four in
   - Stylized multi-tab Excel workbook (`.xlsx`) with conditional color-coded concordance matrices.
   - Pipeline-friendly TSV and CSV tabular exports.
   - Markdown audit summaries suitable for automated documentation.
+- **Zero-Installation Desktop App (`BarcoID.exe`):**
+  - Standalone single-file executable—download and double-click to launch the light-theme Desktop GUI without installing Python.
+  - Built-in **Interactive Metadata Spreadsheet Viewer** (`.csv`, `.tsv`, `.xlsx`): preview your metadata rows inside the app and click any column header to select the **Morphospecies** and **Sample ID** columns.
 
 ---
 
-## Installation
+## Download & Run (No Installation Required)
+
+1. Download **`BarcoID.exe`** (Windows) or the standalone binary for your platform from **GitHub Releases** (or build locally via `python build_executable.py`).
+2. Double-click **`BarcoID.exe`** to open the Desktop GUI:
+   - **Step 1:** Click **Browse FASTA** to select your input DNA barcode `.fasta` file.
+   - **Step 2 (Optional):** Click **Choose Metadata File (.csv / .tsv / .xlsx)** to open your specimen sheet directly inside the app's preview table, then click the column header containing your **Morphospecies** names.
+   - **Step 3:** Click **Run Identification** to execute the 4-source taxonomic pipeline and click **Open Excel Report** when finished.
+
+---
+
+## Python Package Installation (For Developers & CLI Pipelines)
 
 ### From Source
 
