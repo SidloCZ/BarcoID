@@ -2578,10 +2578,27 @@ class BarcoIDApp:
                 "3. Click 'Open Excel Report' for the styled multi-tab workbook or 'Open Results Folder'.",
                 GUIDE_DIR / "step4.png",
             ),
+            (
+                "Data Privacy, Storage & Diagnostic Reports",
+                "• Local Execution: All FASTA sequences, specimen files, and metadata sheets are processed\n"
+                "  strictly locally on your machine. BarcoID contains zero telemetry or background tracking.\n"
+                "• Public Databases: Queries are sent only to official biological reference authorities\n"
+                "  (BOLD Systems, NCBI GenBank, GBIF Backbone) solely for sequence and taxonomic matching.\n"
+                "• Persistent Cache: Results are hashed (SHA-256) and saved in your local `.id_cache/` folder.\n"
+                "• Voluntary Issue Reports: No data is ever transmitted unless you explicitly click 'Report issue'.\n"
+                "  The diagnostic log sent to GitHub contains only technical environment metadata:\n"
+                "    - BarcoID version, OS platform & architecture, Python runtime, display DPI scale\n"
+                "    - Input FASTA filename & sequence count (raw DNA sequence letters are NEVER included)\n"
+                "    - Metadata filename & selected column names (individual specimen rows are NEVER included)\n"
+                "    - Target taxon filter & API connectivity check results (HTTP status / latency)\n"
+                "    - Last error traceback & recent execution log messages",
+                None,
+            ),
         ]
 
         # Keep PhotoImage references alive
         win._guide_photos = []
+        win._guide_steps = guide_steps
 
         for title, desc, img_path in guide_steps:
             card = tk.Frame(
@@ -2613,7 +2630,7 @@ class BarcoIDApp:
                 anchor="w",
             ).pack(fill="x", pady=(0, 10))
 
-            if img_path.exists():
+            if img_path and img_path.exists():
                 try:
                     photo = tk.PhotoImage(file=str(img_path))
                     # Only downsample if image significantly exceeds available card width (e.g. >980px)

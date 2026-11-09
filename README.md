@@ -116,6 +116,49 @@ barcoid --input barcodes.fasta --taxon "Formicidae"
 
 ---
 
+## Data Privacy & Storage
+
+BarcoID follows a strict **local-first privacy architecture**:
+
+- **Local File Processing:**
+  All input DNA barcodes (FASTA files), specimen vouchers, and external metadata spreadsheets (`.csv`, `.tsv`, `.xlsx`) are parsed and analyzed purely on your local machine.
+
+- **External Reference Database Communication:**
+  The pipeline communicates externally solely with official, public biological reference authorities:
+  - **BOLD Systems v5** (`id.boldsystems.org`): Submits sequence batches strictly to query barcodes against BOLD's public reference library.
+  - **NCBI GenBank QBLAST** (`blast.ncbi.nlm.nih.gov`): Submits queries against GenBank nucleotide databases (`nt`).
+  - **GBIF Taxonomic Backbone** (`api.gbif.org`): Queries canonical scientific names to standardize nomenclature.
+  *BarcoID never connects to any third-party analytics servers, private cloud backends, or advertising endpoints.*
+
+- **Zero Telemetry & Tracking:**
+  BarcoID contains no background telemetry, usage tracking, analytics, or automated data harvesting.
+
+- **Persistent Disk Caching (`.id_cache/`):**
+  All remote query responses are hashed (SHA-256) and saved locally in a project `.id_cache/` folder on your disk. This guarantees full offline reproducibility and prevents redundant external network requests.
+
+- **Voluntary Diagnostic Bug Reports:**
+  No diagnostics or logs are ever transmitted automatically. Diagnostic reports are generated only locally (via `Ctrl+Shift+D`, the top-bar Bug icon, or saved to `results/barcoid_bug_report.txt`).
+
+  Only when you voluntarily click **"Report issue"** in the diagnostic window to open a ticket on GitHub:
+  - **What IS included in the diagnostic report:**
+    - BarcoID version (e.g. `v0.3.1`)
+    - Operating system and platform architecture (e.g. `Windows-11-10.0.26300-SP0`, x64)
+    - Python runtime version and packaging mode (e.g. `3.12.13`, Frozen EXE: True/False)
+    - Monitor DPI scaling factor (e.g. `1.25x`)
+    - Input FASTA filename and sequence count (e.g. `barcodes.fasta`, 115 sequences)
+    - Metadata spreadsheet filename, active Sample ID column name, and Morphospecies column name
+    - Selected output directory path
+    - Active target taxon filter (e.g. `Formicidae`)
+    - Live API connectivity status (HTTP status code and latency in milliseconds for BOLD, NCBI, and GBIF)
+    - Last exception traceback (if an error occurred)
+    - Recent execution log history (timestamps and diagnostic messages)
+  - **What is NEVER transmitted or shared:**
+    - Raw DNA sequence letters (`ACGT...`) are **never** included in the bug report.
+    - Specimen vouchers, locality data, or rows from your metadata spreadsheets are **never** included.
+    - No personal credentials, usernames, or private file contents are ever collected.
+
+---
+
 ## Project Structure
 
 ```text
