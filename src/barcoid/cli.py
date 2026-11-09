@@ -148,6 +148,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="NCBI API key to unlock higher request limits (10 req/s).",
     )
     parser.add_argument(
+        "--skip-ncbi",
+        "--no-ncbi",
+        dest="skip_ncbi",
+        action="store_true",
+        help="Skip NCBI GenBank BLAST validation (recommended for large datasets >150 sequences when local BLAST DB is not available).",
+    )
+    parser.add_argument(
+        "--prune-cache",
+        dest="prune_cache",
+        action="store_true",
+        help="Prune empty/unresolved entries from persistent cache to re-evaluate failed queries without purging valid matches.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         dest="verbose",
@@ -177,6 +190,18 @@ def main(args=None):
         launch_gui()
         return
 
+    if parsed_args.prune_cache:
+        from barcoid.cache import CacheManager
+
+        c_dir = parsed_args.cache_dir or Path(".id_cache")
+        mgr = CacheManager(c_dir)
+        stats = mgr.prune_empty()
+        print(
+            f"Cache pruned: removed {stats['bold']} empty BOLD and {stats['ncbi']} empty NCBI record(s)."
+        )
+        if not parsed_args.input_fasta:
+            return
+
     if not parsed_args.input_fasta:
         parser.error(
             "the following arguments are required in CLI mode: -i/--input (or run with no arguments to open GUI)"
@@ -193,6 +218,7 @@ def main(args=None):
         ncbi_batch_size=parsed_args.ncbi_batch_size,
         dry_run=parsed_args.dry_run,
         force_refresh=parsed_args.force_refresh,
+        skip_ncbi=parsed_args.skip_ncbi,
         local_blast_db=parsed_args.local_blast_db,
         ncbi_email=parsed_args.ncbi_email,
         ncbi_api_key=parsed_args.ncbi_api_key,

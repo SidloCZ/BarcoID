@@ -9,6 +9,12 @@ from typing import Any, Callable, Optional
 logger = logging.getLogger("barcoid.engines.rate_limiter")
 
 
+class NonRetryableError(Exception):
+    """Raised when an API error is deterministic (e.g., HTTP 400 Bad Request) and must not be retried."""
+
+    pass
+
+
 class RateLimiter:
     """Enforces minimum intervals between external HTTP requests."""
 
@@ -45,6 +51,10 @@ def execute_with_backoff(
             return action()
         except Exception as exc:
             last_exception = exc
+            if isinstance(exc, NonRetryableError):
+                logger.error(f"[{action_name}] Non-retryable error: {exc}")
+                raise exc
+
             is_rate_limit = "429" in str(exc) or "Too Many Requests" in str(exc)
             if attempt < max_retries:
                 wait_time = delay * (1.5 if is_rate_limit else 1.0)

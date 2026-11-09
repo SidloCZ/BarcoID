@@ -4,6 +4,7 @@ BOLD Systems v5 REST API client with batching, polling, rate limiting, and disk 
 
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -11,9 +12,15 @@ import requests
 
 from barcoid.cache import CacheManager
 from barcoid.config import BarcoIDConfig
-from barcoid.engines.rate_limiter import RateLimiter, execute_with_backoff
+from barcoid.engines.rate_limiter import NonRetryableError, RateLimiter, execute_with_backoff
 
 logger = logging.getLogger("barcoid.engines.bold")
+
+
+class BoldClientError(NonRetryableError):
+    """Raised when BOLD API rejects submission due to invalid sequence or bad parameters (HTTP 400)."""
+
+    pass
 
 
 class BoldEngine:
@@ -24,6 +31,20 @@ class BoldEngine:
         self.cache_manager = cache_manager
         self.rate_limiter = RateLimiter(min_interval_seconds=config.bold_delay_between_batches)
 
+    def _validate_sequence_quality(self, sequence: str) -> Tuple[bool, str]:
+        """Validates that a nucleotide sequence meets BOLD v5 quality thresholds."""
+        cleaned = sequence.strip()
+        if len(cleaned) < 20:
+            return False, f"Sequence length ({len(cleaned)} bp) is below BOLD minimum (20 bp)"
+        valid_nts = len(re.findall(r"[ACGTacgt\-]", cleaned))
+        ratio = (valid_nts / len(cleaned)) if len(cleaned) > 0 else 0.0
+        if ratio < 0.75:
+            return (
+                False,
+                f"Valid nucleotide ratio ({ratio:.1%}) is below BOLD requirement ([ACGT-] >= 75%)",
+            )
+        return True, ""
+
     def identify_sequences(self, sequences: List[Tuple[str, str]]) -> Dict[str, Dict[str, Any]]:
         """
         Identifies a list of (header, sequence) tuples via BOLD Systems v5 REST API.
@@ -32,14 +53,21 @@ class BoldEngine:
         results: Dict[str, Dict[str, Any]] = {}
         pending: List[Tuple[str, str, str]] = []
 
-        # Check disk cache first
+        # Check disk cache and pre-screen sequence quality
         for hdr, seq in sequences:
             seq_hash = self.cache_manager.hash_sequence(seq)
             cached = self.cache_manager.get_bold(seq)
             if cached and not self.config.force_refresh:
                 results[hdr] = cached
             else:
-                pending.append((hdr, seq, seq_hash))
+                is_valid, reason = self._validate_sequence_quality(seq)
+                if not is_valid:
+                    res = self._empty_result()
+                    res["qc_note"] = f"Skipped for BOLD: {reason}"
+                    results[hdr] = res
+                    logger.debug(f"Skipping sequence '{hdr}' for BOLD: {reason}")
+                else:
+                    pending.append((hdr, seq, seq_hash))
 
         if not pending or self.config.dry_run:
             if self.config.dry_run and pending:
@@ -63,54 +91,103 @@ class BoldEngine:
         }
 
         batch_size = max(1, self.config.bold_batch_size)
-        for i in range(0, len(pending), batch_size):
+        total_batches = (len(pending) + batch_size - 1) // batch_size
+        for idx, i in enumerate(range(0, len(pending), batch_size), start=1):
             chunk = pending[i : i + batch_size]
-            self.rate_limiter.wait()
-
-            fasta_body = "".join(f">{hdr}\n{seq}\n" for hdr, seq, _ in chunk)
-            files = {"fasta_file": ("batch.fas", fasta_body, "text/plain")}
-
-            def _submit(f=files):
-                resp = requests.post(
-                    self.config.bold_api_url,
-                    params=params,
-                    files=f,
-                    headers=headers,
-                    timeout=60,
-                )
-                if resp.status_code != 200:
-                    raise RuntimeError(
-                        f"BOLD submission returned HTTP {resp.status_code}: {resp.text[:200]}"
-                    )
-                return resp.json()
-
-            try:
-                sub_data = execute_with_backoff(
-                    _submit,
-                    max_retries=self.config.max_retries,
-                    backoff_factor=self.config.backoff_factor,
-                    action_name=f"BOLD batch {i // batch_size + 1}",
-                )
-                sub_id = sub_data.get("sub_id")
-                if not sub_id:
-                    logger.warning(f"No sub_id received from BOLD for batch: {sub_data}")
-                    self._populate_empty(chunk, results)
-                    continue
-
-                # Poll for batch results
-                poll_results = self._poll_results(sub_id, headers, len(chunk))
-                for hdr, seq, _seq_hash in chunk:
-                    res_obj = poll_results.get(hdr) or self._empty_result()
-                    self.cache_manager.set_bold(seq, res_obj)
-                    results[hdr] = res_obj
-
-                self.cache_manager.save()
-
-            except Exception as e:
-                logger.error(f"Failed processing BOLD batch {i // batch_size + 1}: {e}")
-                self._populate_empty(chunk, results)
+            batch_name = f"BOLD batch {idx}/{total_batches}"
+            self._process_chunk(chunk, results, headers, params, batch_name)
 
         return results
+
+    def _process_chunk(
+        self,
+        chunk: List[Tuple[str, str, str]],
+        results: Dict[str, Dict[str, Any]],
+        headers: Dict[str, str],
+        params: Dict[str, Any],
+        batch_name: str,
+    ):
+        """Submits a single chunk of sequences to BOLD with adaptive error recovery."""
+        if not chunk:
+            return
+
+        self.rate_limiter.wait()
+        fasta_body = "".join(f">{hdr}\n{seq}\n" for hdr, seq, _ in chunk)
+        files = {"fasta_file": ("batch.fas", fasta_body, "text/plain")}
+
+        def _submit(f=files):
+            resp = requests.post(
+                self.config.bold_api_url,
+                params=params,
+                files=f,
+                headers=headers,
+                timeout=60,
+            )
+            if resp.status_code == 400:
+                raise BoldClientError(f"BOLD submission returned HTTP 400: {resp.text[:300]}")
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"BOLD submission returned HTTP {resp.status_code}: {resp.text[:200]}"
+                )
+            return resp.json()
+
+        try:
+            sub_data = execute_with_backoff(
+                _submit,
+                max_retries=self.config.max_retries,
+                backoff_factor=self.config.backoff_factor,
+                action_name=batch_name,
+            )
+            sub_id = sub_data.get("sub_id")
+            if not sub_id:
+                logger.warning(f"No sub_id received from BOLD for {batch_name}: {sub_data}")
+                self._populate_empty(chunk, results)
+                return
+
+            poll_results = self._poll_results(sub_id, headers, len(chunk))
+            for hdr, seq, _seq_hash in chunk:
+                res_obj = poll_results.get(hdr) or self._empty_result()
+                self.cache_manager.set_bold(seq, res_obj)
+                results[hdr] = res_obj
+
+            self.cache_manager.save_bold()
+
+        except BoldClientError as bce:
+            err_msg = str(bce)
+            m_label = re.search(r"for label '([^']+)'", err_msg)
+            if m_label and len(chunk) > 1:
+                bad_label = m_label.group(1)
+                logger.warning(
+                    f"BOLD batch rejected due to label '{bad_label}'. Isolating invalid sequence."
+                )
+                valid_subset = []
+                for item in chunk:
+                    if item[0] == bad_label or bad_label in item[0]:
+                        bad_res = self._empty_result()
+                        bad_res["qc_note"] = f"Rejected by BOLD API: {err_msg[:120]}"
+                        results[item[0]] = bad_res
+                    else:
+                        valid_subset.append(item)
+                if valid_subset:
+                    self._process_chunk(
+                        valid_subset, results, headers, params, f"{batch_name}-retry"
+                    )
+            elif len(chunk) > 1:
+                mid = len(chunk) // 2
+                logger.warning(
+                    f"BOLD returned HTTP 400 for {batch_name}. Bisecting batch ({len(chunk)} seqs)..."
+                )
+                self._process_chunk(chunk[:mid], results, headers, params, f"{batch_name}a")
+                self._process_chunk(chunk[mid:], results, headers, params, f"{batch_name}b")
+            else:
+                hdr, seq, _ = chunk[0]
+                res = self._empty_result()
+                res["qc_note"] = f"Rejected by BOLD API: {err_msg[:120]}"
+                results[hdr] = res
+
+        except Exception as e:
+            logger.error(f"Failed processing {batch_name}: {e}")
+            self._populate_empty(chunk, results)
 
     def _poll_results(
         self, sub_id: str, headers: Dict[str, str], expected_count: int
@@ -221,4 +298,4 @@ class BoldEngine:
             res = self._empty_result()
             results[hdr] = res
             self.cache_manager.set_bold(seq, res)
-        self.cache_manager.save()
+        self.cache_manager.save_bold()

@@ -104,7 +104,7 @@ class LocalBlastEngine:
                     self.cache_manager.set_ncbi(orig_seq, empty_res)
                     results[orig_hdr] = empty_res
 
-            self.cache_manager.save()
+            self.cache_manager.save_ncbi()
 
         finally:
             query_path.unlink(missing_ok=True)

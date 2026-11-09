@@ -22,6 +22,7 @@ class BarcoIDConfig:
     backoff_factor: float = 2.0  # Exponential backoff factor (seconds)
     dry_run: bool = False  # If True, inspect cache and plan queries without network calls
     force_refresh: bool = False  # If True, bypass cache and re-query external APIs
+    skip_ncbi: bool = False  # If True, bypass NCBI BLAST (run BOLD + Morpho + GBIF only)
 
     # BOLD Systems v5 API settings
     bold_api_url: str = "https://id.boldsystems.org/submission"

@@ -109,17 +109,25 @@ class BarcoIDPipeline:
 
         # 3. Workload safety audit
         uncached_bold = sum(1 for _, seq in sequences if not self.cache_manager.get_bold(seq))
-        uncached_ncbi = sum(1 for _, seq in sequences if not self.cache_manager.get_ncbi(seq))
-        warning = PacingAdvisor.audit_workload(
-            uncached_ncbi,
-            has_local_db=bool(
-                self.config.local_blast_db and Path(self.config.local_blast_db).exists()
-            ),
+        uncached_ncbi = (
+            0
+            if self.config.skip_ncbi
+            else sum(1 for _, seq in sequences if not self.cache_manager.get_ncbi(seq))
         )
-        if warning:
-            logger.warning("=" * 70)
-            logger.warning(warning)
-            logger.warning("=" * 70)
+        if not self.config.skip_ncbi:
+            warning = PacingAdvisor.audit_workload(
+                uncached_ncbi,
+                has_local_db=bool(
+                    self.config.local_blast_db and Path(self.config.local_blast_db).exists()
+                ),
+            )
+            if warning:
+                logger.warning("=" * 70)
+                logger.warning(warning)
+                logger.warning("=" * 70)
+        else:
+            logger.info("NCBI BLAST engine skipped (--skip-ncbi enabled).")
+            _srv("ncbi", "Skipped")
 
         if self.config.dry_run:
             logger.info(
@@ -127,7 +135,7 @@ class BarcoIDPipeline:
                 f"Uncached BOLD: {uncached_bold}, Uncached NCBI: {uncached_ncbi}"
             )
             _srv("bold", "Done")
-            _srv("ncbi", "Done")
+            _srv("ncbi", "Skipped" if self.config.skip_ncbi else "Done")
             _srv("gbif", "Done")
             _notify(
                 f"Dry run complete: {len(sequences)} sequence(s) inspected "
@@ -138,12 +146,19 @@ class BarcoIDPipeline:
 
         # 4. Run BOLD, NCBI, and GBIF concurrently in parallel threads
         _srv("bold", "Active")
-        _srv("ncbi", "Active")
         _srv("gbif", "Active")
-        _notify(
-            f"Running BOLD ({len(sequences)} seqs), NCBI BLAST ({len(sequences)} seqs), and GBIF in parallel...",
-            35.0,
-        )
+        if self.config.skip_ncbi:
+            _srv("ncbi", "Skipped")
+            _notify(
+                f"Running BOLD ({len(sequences)} seqs) and GBIF in parallel (NCBI skipped)...",
+                35.0,
+            )
+        else:
+            _srv("ncbi", "Active")
+            _notify(
+                f"Running BOLD ({len(sequences)} seqs), NCBI BLAST ({len(sequences)} seqs), and GBIF in parallel...",
+                35.0,
+            )
 
         gbif_engine = GbifEngine(self.config, self.cache_manager)
 
@@ -170,13 +185,17 @@ class BarcoIDPipeline:
 
         with ThreadPoolExecutor(max_workers=3) as pool:
             fut_bold = pool.submit(_run_bold)
-            fut_ncbi = pool.submit(_run_ncbi)
+            fut_ncbi = None if self.config.skip_ncbi else pool.submit(_run_ncbi)
             fut_gbif_init = pool.submit(_run_initial_gbif)
 
             gbif_results = fut_gbif_init.result()
             bold_results = fut_bold.result()
-            _notify("BOLD finished; awaiting remaining parallel streams...", 65.0)
-            ncbi_results = fut_ncbi.result()
+            if fut_ncbi is not None:
+                _notify("BOLD finished; awaiting remaining parallel streams...", 65.0)
+                ncbi_results = fut_ncbi.result()
+            else:
+                ncbi_results = {}
+                _notify("BOLD and initial GBIF finished.", 65.0)
 
         # 5. Resolve any newly discovered candidate names from BOLD and NCBI hits via GBIF
         _notify("Finalizing GBIF Taxonomic Backbone harmonization...", 82.0)
@@ -231,7 +250,8 @@ class BarcoIDPipeline:
                 }
             )
 
-        # 7. Export outputs
+        # 7. Finalize cache and export outputs
+        self.cache_manager.save()
         out_dir = Path(self.config.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 

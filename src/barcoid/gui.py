@@ -638,6 +638,7 @@ def build_config_from_inputs(
     ncbi_api_key: str = "",
     dry_run: bool = False,
     force_refresh: bool = False,
+    skip_ncbi: bool = False,
 ) -> BarcoIDConfig:
     """Constructs a validated BarcoIDConfig from GUI form values."""
     base_dir = default_portable_base_dir(fasta_path)
@@ -656,6 +657,7 @@ def build_config_from_inputs(
         max_sequences=max_seq,
         dry_run=dry_run,
         force_refresh=force_refresh,
+        skip_ncbi=skip_ncbi,
         ncbi_email=ncbi_email.strip() or None,
         ncbi_api_key=ncbi_api_key.strip() or None,
     )
@@ -737,6 +739,7 @@ class BarcoIDApp:
         self.ncbi_key_var = tk.StringVar(value=os.environ.get("NCBI_API_KEY", ""))
         self.dry_run_var = tk.BooleanVar(value=False)
         self.force_refresh_var = tk.BooleanVar(value=False)
+        self.skip_ncbi_var = tk.BooleanVar(value=False)
 
         # Metadata preview & column picker state
         self.meta_columns: List[str] = []
@@ -1305,6 +1308,25 @@ class BarcoIDApp:
             flags_row,
             text="  Force Refresh (bypass disk cache)",
             variable=self.force_refresh_var,
+            image=self.icon_check_unselected,
+            selectimage=self.icon_check_selected,
+            indicatoron=False,
+            compound="left",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            activebackground=PALETTE["card_inner"],
+            activeforeground=PALETTE["text_dark"],
+            font=FONT_BODY,
+            cursor="hand2",
+        ).pack(side="left", padx=(0, 24))
+
+        tk.Checkbutton(
+            flags_row,
+            text="  Skip NCBI BLAST (BOLD + Morpho only)",
+            variable=self.skip_ncbi_var,
             image=self.icon_check_unselected,
             selectimage=self.icon_check_selected,
             indicatoron=False,
@@ -2700,6 +2722,7 @@ class BarcoIDApp:
                 ncbi_api_key=self.ncbi_key_var.get(),
                 dry_run=self.dry_run_var.get(),
                 force_refresh=self.force_refresh_var.get(),
+                skip_ncbi=self.skip_ncbi_var.get(),
             )
         except ValueError as exc:
             messagebox.showerror("Invalid Parameter", f"Please check numeric inputs:\n{exc}")
@@ -2720,7 +2743,12 @@ class BarcoIDApp:
             disabledforeground="#FFFFFF",
         )
         self.progress_var.set(5.0)
-        self._set_service_states(morpho="Active", bold="Idle", ncbi="Idle", gbif="Idle")
+        self._set_service_states(
+            morpho="Active",
+            bold="Idle",
+            ncbi="Skipped" if self.skip_ncbi_var.get() else "Idle",
+            gbif="Idle",
+        )
 
         worker = threading.Thread(
             target=self._run_pipeline_worker,

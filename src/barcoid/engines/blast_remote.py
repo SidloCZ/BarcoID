@@ -1,6 +1,6 @@
 """
 Resilient NCBI GenBank QBLAST remote client with stalled RID recovery, adaptive batching,
-defline sanitization, and compliance pacing.
+defline sanitization, HTML error detection, and compliance pacing.
 """
 
 import io
@@ -92,22 +92,36 @@ class RemoteBlastEngine:
                         self.cache_manager.set_ncbi(orig_seq, res_obj)
                         results[orig_hdr] = res_obj
 
-                # Fill any missing hits in this batch with empty result
-                for _qid, (orig_hdr, orig_seq) in query_map.items():
-                    if orig_hdr not in results:
-                        empty_res = self._empty_result()
-                        self.cache_manager.set_ncbi(orig_seq, empty_res)
-                        results[orig_hdr] = empty_res
+                    # Fill genuine unaligned queries (present in valid XML but with 0 alignments)
+                    for _qid, (orig_hdr, orig_seq) in query_map.items():
+                        if orig_hdr not in results:
+                            empty_res = self._empty_result()
+                            self.cache_manager.set_ncbi(orig_seq, empty_res)
+                            results[orig_hdr] = empty_res
 
-                self.cache_manager.save()
+                    self.cache_manager.save_ncbi()
+                else:
+                    logger.warning(
+                        f"NCBI QBLAST batch {batch_num} yielded no XML (API error/timeout). "
+                        "Results will NOT be cached as negative matches."
+                    )
+                    for _qid, (orig_hdr, _orig_seq) in query_map.items():
+                        if orig_hdr not in results:
+                            err_res = self._empty_result()
+                            err_res["status"] = "NCBI query timed out or unavailable"
+                            results[orig_hdr] = err_res
+                    # Cool-down pause to allow remote NCBI queue to recover
+                    time.sleep(5.0)
 
             except Exception as e:
                 logger.error(f"NCBI QBLAST batch {batch_num} failed: {e}")
-                for _qid, (orig_hdr, orig_seq) in query_map.items():
-                    empty_res = self._empty_result()
-                    self.cache_manager.set_ncbi(orig_seq, empty_res)
-                    results[orig_hdr] = empty_res
-                self.cache_manager.save()
+                for _qid, (orig_hdr, _orig_seq) in query_map.items():
+                    if orig_hdr not in results:
+                        err_res = self._empty_result()
+                        err_res["status"] = f"NCBI batch failed: {e}"
+                        results[orig_hdr] = err_res
+                # Cool-down pause to allow remote NCBI queue to recover
+                time.sleep(5.0)
 
         return results
 
@@ -134,7 +148,20 @@ class RemoteBlastEngine:
                 raise RuntimeError("NCBI returned HTTP 429: Too Many Requests.")
             if resp.status_code != 200:
                 raise RuntimeError(f"NCBI Put failed with HTTP {resp.status_code}")
-            return resp.text
+            text = resp.text
+            if "RID = " not in text:
+                lower = text.lower()
+                if (
+                    "<html" in lower
+                    or "too many requests" in lower
+                    or "cpu limit" in lower
+                    or "cannot submit" in lower
+                ):
+                    raise RuntimeError(
+                        "NCBI QBLAST server busy / rate-limited (returned HTML error page without RID)."
+                    )
+                raise RuntimeError(f"NCBI Put did not return RID: {text[:200]}")
+            return text
 
         put_text = execute_with_backoff(
             _do_put,

@@ -82,7 +82,7 @@ class GbifEngine:
                 "order": data.get("order", ""),
             }
             self.cache_manager.set_gbif(clean_name, result)
-            self.cache_manager.save()
+            self.cache_manager.save_gbif()
             return result
         except Exception as e:
             logger.warning(f"GBIF Species Match failed for '{clean_name}': {e}")
@@ -98,4 +98,5 @@ class GbifEngine:
         for name in unique_names:
             results[name] = self.match_species(name)
 
+        self.cache_manager.save_gbif()
         return results
