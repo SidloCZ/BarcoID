@@ -716,6 +716,7 @@ class BarcoIDApp:
         self.root.configure(bg=PALETTE["bg_canvas"])
         self._apply_app_icon()
         self._maximize_window()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close_window)
 
         # Font measurement helpers for cell truncation & Excel-style auto-fit
         self.tk_font_body = tkfont.Font(root=self.root, font=FONT_BODY)
@@ -849,6 +850,21 @@ class BarcoIDApp:
                 self.root.attributes("-zoomed", True)
         except Exception:
             pass
+
+    def _on_close_window(self):
+        """Warns the user before exiting if an identification run is currently in progress."""
+        if self.is_running:
+            confirm = messagebox.askyesno(
+                "Run in Progress",
+                "An identification run is currently in progress.\n\n"
+                "Are you sure you want to stop the run and exit BarcoID?\n"
+                "Completed sequences are safely cached and preserved, but unfinished sequences will be aborted.",
+                icon="warning",
+                parent=self.root,
+            )
+            if not confirm:
+                return
+        self.root.destroy()
 
     def _apply_dpi_scaling(self):
         """Synchronizes Tkinter's internal font/widget scaling factor with the monitor DPI."""

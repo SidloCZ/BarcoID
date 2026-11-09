@@ -296,3 +296,33 @@ def test_gui_interactive_column_picker():
         app.guide_win = None
     finally:
         root.destroy()
+
+
+def test_on_close_window_warning(monkeypatch):
+    """Verifies that closing the window prompts confirmation if a run is actively executing."""
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = BarcoIDApp(root)
+        app.is_running = True
+
+        prompt_called = []
+
+        def mock_askyesno(title, msg, **kwargs):
+            prompt_called.append((title, msg))
+            return False  # User clicks 'No' to abort closing
+
+        monkeypatch.setattr("tkinter.messagebox.askyesno", mock_askyesno)
+        app._on_close_window()
+        assert len(prompt_called) == 1
+        assert "Run in Progress" in prompt_called[0][0]
+        assert root.winfo_exists()
+
+        # When user clicks 'Yes', window is destroyed
+        monkeypatch.setattr("tkinter.messagebox.askyesno", lambda *args, **kwargs: True)
+        app._on_close_window()
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass

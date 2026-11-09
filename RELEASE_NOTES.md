@@ -1,5 +1,50 @@
 # BarcoID Release Notes
 
+## Version 0.3.0
+
+**Progressive Results Chunking, Resilient Multi-Thread Caching, Dynamic ETA & Window Close Protection**
+
+---
+
+### What's New & Key Highlights in Version 0.3.0
+
+- **Progressive Execution & Incremental Preliminary Exports:**
+  - Sequences can now be processed in configurable incremental chunks (default: 50 sequences, options: 25, 50, 100, 200).
+  - Preliminary concordance and QC evaluations are automatically written to `*_preliminary.xlsx` and streamed to the UI after every completed chunk.
+  - Users can inspect partially completed identifications without waiting for thousands of sequences to finish.
+  - Toggleable via GUI checkbox in Step 3 and CLI (`--enable-preliminary` / `--no-preliminary`, `--preliminary-interval <N>`).
+
+- **Interactive "Check Preliminary Results" Navigation:**
+  - Added a dynamic **"Check Preliminary Results (N)"** button in Step 3 that lights up as soon as the first chunk completes.
+  - Clicking seamlessly switches to **Step 4: Results** with live-updating tables and concordance metric cards.
+  - Step 4 now features a dedicated **"Back to Active Run"** button allowing seamless toggling between live inspection and the active execution monitor.
+
+- **Dynamic Real-Time Time Estimation (ETA):**
+  - Step 3 now computes and displays comprehensive live execution statistics:
+    `Elapsed: MM:SS | ETA: ~MM:SS | Speed: X.X seq/s | Completed: X / Y (Z%)`.
+  - Automatically factors in actual network response times and cache hit ratios.
+
+- **Run in Progress Exit Guard:**
+  - Added native `WM_DELETE_WINDOW` protection that intercepts window close requests while an identification run is active.
+  - Displays a clean warning modal confirming whether to abort the active run, ensuring users do not accidentally close the app and lose in-flight network batches.
+
+- **Multi-Thread Cache Thread-Safety & Windows/OneDrive Resilience:**
+  - Replaced monolithic file saves with thread-safe `threading.RLock()` and isolated engine flushes (`save_bold()`, `save_ncbi()`, `save_gbif()`).
+  - Implemented per-thread unique temporary files (`{stem}_{pid}_{thread}_{uuid}.tmp`) eliminating `[WinError 32]` lock collisions in cloud-synced folders (OneDrive, Dropbox) and antivirus scanners.
+  - Added exponential retry loops for atomic file replacements.
+  - Added `CacheManager.prune_empty()` and CLI `--prune-cache` to clean false-negative cache entries without purging valid hits.
+
+- **BOLD Systems v5 Quality Pre-Screening & HTTP 400 Isolation:**
+  - Sequences with `< 75%` standard `[ACGT-]` nucleotides or length `< 20 bp` are automatically pre-screened, logged with a clear QC note, and excluded from BOLD query batches to prevent HTTP 400 rejections.
+  - Added adaptive batch bisecting and label isolation so a single low-quality sequence never drops other valid sequences in the batch.
+
+- **NCBI QBLAST HTML Congestion Detection & Cache Protection:**
+  - Added detection for HTML error/congestion pages from NCBI, raising proper backoff exceptions instead of treating missing RIDs as negative matches.
+  - Failed or timed-out NCBI queries are never poisoned into the persistent disk cache as false negatives.
+  - Added `--skip-ncbi` (alias `--no-ncbi`) option in CLI and GUI to bypass remote QBLAST on large datasets (>150 sequences) when a local BLAST database is unavailable.
+
+---
+
 ## Version 0.2.0
 
 **Multi-Source DNA Barcode Taxonomic Identifier, Cross-Referencer & QC Auditor**
