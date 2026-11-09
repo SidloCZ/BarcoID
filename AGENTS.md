@@ -75,6 +75,24 @@ Tento soubor slouží jako centrální a závazná sada instrukcí pro AI asiste
   - Zákaz Unicode vlaječek států (na Windows se vykreslují jako textová písmena) – vždy nahradit inline SVG vlajkou.
 - **Faktická přesnost bez domýšlení:**
   - Nikdy si nevymýšlej neověřené parametry, čísla nebo fakta. Pokud chybí přesný zdroj či data, zeptej se uživatele nebo nastav prvek do stavu konceptu.
+- **Automatické ukládání postřehů a návrhů (SUGGESTIONS.md):**
+  - **Zásada nezdržování:** Asistent aktivně a cíleně nevyhledává vedlejší problémy a neodvádí pozornost od zadaného úkolu. Zaznamenává výhradně postřehy, na které přirozeně narazí během řešení (např. technický dluh, skrytý bug, neoptimální kód, bezpečnostní riziko, chybějící typování), a které by jinak pouze napsal do chatu, kde hrozí jejich zapadnutí.
+  - **Umístění a inicializace:** Návrhy ukládej do souboru `SUGGESTIONS.md` v kořenovém adresáři projektu. Pokud soubor ještě neexistuje, asistent jej vytvoří s logickým rozdělením do kategorií.
+  - **Prevence duplicit:** Před zápisem vždy nejprve zkontroluj existující obsah `SUGGESTIONS.md`. Pokud obdobný záznam již existuje, duplicitu nevytvářej (případně pouze doplň nový kontext či odkaz na další soubor).
+  - **Formát zápisu:** Každý záznam vlož jako odškrtávací položku checklistu do odpovídající kategorie:
+    ```markdown
+    - [ ] **[Výstižný název problému či námětu]**
+      - **Kde:** `cesta/k/souboru` (včetně řádku či symbolu)
+      - **Kontext:** Stručný popis zjištěného stavu nebo rizika (1–2 věty).
+      - **Návrh řešení:** Konkrétní doporučený postup nápravy.
+    ```
+  - **Doporučené kategorie:**
+    - `## Architektura a kód`
+    - `## UI, UX a frontend`
+    - `## Bugy a potenciální rizika`
+    - `## Výkon a optimalizace`
+    - `## Dokumentace a procesy`
+  - **Chování v chatu:** Nezahlcuj chat rozsáhlými rozbory vedlejších nápadů. Do odpovědi vlož pouze stručnou jednovětou notifikaci s odkazem na soubor, např. *„Při úpravách jsem zaznamenal prostor pro refaktoring – detailní návrh jsem zapsal do [SUGGESTIONS.md](SUGGESTIONS.md).*“
 
 ---
 

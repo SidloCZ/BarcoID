@@ -639,6 +639,8 @@ def build_config_from_inputs(
     dry_run: bool = False,
     force_refresh: bool = False,
     skip_ncbi: bool = False,
+    enable_preliminary_results: bool = True,
+    preliminary_interval: int = 50,
 ) -> BarcoIDConfig:
     """Constructs a validated BarcoIDConfig from GUI form values."""
     base_dir = default_portable_base_dir(fasta_path)
@@ -658,6 +660,8 @@ def build_config_from_inputs(
         dry_run=dry_run,
         force_refresh=force_refresh,
         skip_ncbi=skip_ncbi,
+        enable_preliminary_results=enable_preliminary_results,
+        preliminary_interval=preliminary_interval,
         ncbi_email=ncbi_email.strip() or None,
         ncbi_api_key=ncbi_api_key.strip() or None,
     )
@@ -740,6 +744,11 @@ class BarcoIDApp:
         self.dry_run_var = tk.BooleanVar(value=False)
         self.force_refresh_var = tk.BooleanVar(value=False)
         self.skip_ncbi_var = tk.BooleanVar(value=False)
+        self.enable_preliminary_var = tk.BooleanVar(value=True)
+        self.preliminary_interval_var = tk.StringVar(value="50")
+        self.eta_var = tk.StringVar(value="")
+        self.preliminary_rows: List[Dict[str, Any]] = []
+        self.preliminary_xlsx_path: Optional[Path] = None
 
         # Metadata preview & column picker state
         self.meta_columns: List[str] = []
@@ -1642,7 +1651,48 @@ class BarcoIDApp:
             self.service_labels[key] = s_lbl
             self.service_spinners[key] = spin_canvas
 
-        # Run Button + Progress Bar
+        # Progressive preliminary export options in Step 3
+        prelim_opts = tk.Frame(page, bg=PALETTE["card_inner"])
+        prelim_opts.pack(fill="x", pady=(0, 10))
+
+        tk.Checkbutton(
+            prelim_opts,
+            text="  Save preliminary results every",
+            variable=self.enable_preliminary_var,
+            image=self.icon_check_unselected,
+            selectimage=self.icon_check_selected,
+            indicatoron=False,
+            compound="left",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            bg=PALETTE["card_inner"],
+            fg=PALETTE["text_dark"],
+            activebackground=PALETTE["card_inner"],
+            activeforeground=PALETTE["text_dark"],
+            font=FONT_BODY,
+            cursor="hand2",
+        ).pack(side="left")
+
+        self.interval_combo = ttk.Combobox(
+            prelim_opts,
+            textvariable=self.preliminary_interval_var,
+            values=["25", "50", "100", "200"],
+            width=5,
+            state="readonly",
+            font=FONT_BODY,
+        )
+        self.interval_combo.pack(side="left", padx=(6, 6))
+
+        tk.Label(
+            prelim_opts,
+            text="sequences (uncheck for very large datasets to minimize disk writes)",
+            font=FONT_BODY,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+        ).pack(side="left")
+
+        # Run Button + Progress Bar + Dynamic ETA
         ctrl_row = tk.Frame(page, bg=PALETTE["card_inner"])
         ctrl_row.pack(fill="x", pady=(0, 12))
 
@@ -1673,6 +1723,16 @@ class BarcoIDApp:
         )
         self.progress_bar.pack(fill="x", pady=(6, 0))
 
+        self.eta_label = tk.Label(
+            prog_wrap,
+            textvariable=self.eta_var,
+            font=FONT_BODY,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+            anchor="w",
+        )
+        self.eta_label.pack(fill="x", pady=(4, 0))
+
         # Footer Navigation (with SVG arrow icons)
         footer3 = tk.Frame(page, bg=PALETTE["card_inner"])
         footer3.pack(side="bottom", fill="x", pady=(12, 0))
@@ -1689,6 +1749,14 @@ class BarcoIDApp:
             footer3, "Next: Results  ", lambda: self.show_step(3), primary=True, arrow="right"
         )
         self.to_results_btn.pack(side="right")
+
+        self.preliminary_btn = self._make_button(
+            footer3,
+            "Check Preliminary Results  ",
+            self._view_preliminary_results,
+            primary=False,
+            arrow="right",
+        )
 
         # Live Log Console
         self.log_text = tk.Text(
@@ -1795,9 +1863,10 @@ class BarcoIDApp:
         footer4 = tk.Frame(page, bg=PALETTE["card_inner"])
         footer4.pack(side="bottom", fill="x", pady=(12, 0))
 
-        self._make_button(
+        self.back_to_run_btn = self._make_button(
             footer4, "  Back: Run", lambda: self.show_step(2), primary=False, arrow="left"
-        ).pack(side="left")
+        )
+        self.back_to_run_btn.pack(side="left")
 
         # Scrollable Canvas Grid with ModernScrollbars
         grid_wrap = tk.Frame(
@@ -2173,6 +2242,48 @@ class BarcoIDApp:
             self.run_overview_var.set(
                 f"FASTA: {fasta_name}     •     Metadata: {meta_name}     •     Target Taxon: {self.taxon_var.get()}"
             )
+
+        if self.current_step == 3 and hasattr(self, "back_to_run_btn"):
+            if self.is_running:
+                self.back_to_run_btn.configure(
+                    text="  Back to Active Run",
+                    bg=PALETTE["primary"],
+                    fg="#FFFFFF",
+                )
+            else:
+                self.back_to_run_btn.configure(
+                    text="  Back: Run",
+                    bg=PALETTE["card_inner"],
+                    fg=PALETTE["text_dark"],
+                )
+
+    def _view_preliminary_results(self):
+        """Switches to Step 4 to inspect live preliminary results while identification continues."""
+        if not self.preliminary_rows:
+            return
+        self.populate_results_table(self.preliminary_rows)
+        counts = {
+            "CONCORDANT": 0,
+            "NEW_ASSIGNMENT": 0,
+            "MISMATCH_ALERT": 0,
+            "NO_MATCH": 0,
+        }
+        for r in self.preliminary_rows:
+            st = r.get("concordance_status", "")
+            if st in counts:
+                counts[st] += 1
+        self._update_summary_cards(len(self.preliminary_rows), counts)
+        self.show_step(3)
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Formats seconds into MM:SS or HH:MM:SS."""
+        secs = int(max(0, round(seconds)))
+        mins, s = divmod(secs, 60)
+        hrs, m = divmod(mins, 60)
+        if hrs > 0:
+            return f"{hrs:02d}:{m:02d}:{s:02d}"
+        return f"{m:02d}:{s:02d}"
 
     def _make_button(
         self,
@@ -2711,6 +2822,11 @@ class BarcoIDApp:
             return
 
         try:
+            try:
+                prelim_interval_val = max(10, int(self.preliminary_interval_var.get().strip()))
+            except Exception:
+                prelim_interval_val = 50
+
             config = build_config_from_inputs(
                 fasta_path=fasta_path,
                 output_dir=Path(self.output_dir_var.get().strip())
@@ -2723,6 +2839,8 @@ class BarcoIDApp:
                 dry_run=self.dry_run_var.get(),
                 force_refresh=self.force_refresh_var.get(),
                 skip_ncbi=self.skip_ncbi_var.get(),
+                enable_preliminary_results=self.enable_preliminary_var.get(),
+                preliminary_interval=prelim_interval_val,
             )
         except ValueError as exc:
             messagebox.showerror("Invalid Parameter", f"Please check numeric inputs:\n{exc}")
@@ -2735,6 +2853,11 @@ class BarcoIDApp:
 
         self.show_step(2)
         self.is_running = True
+        self.preliminary_rows = []
+        self.preliminary_xlsx_path = None
+        self.eta_var.set("Starting pipeline...")
+        self.preliminary_btn.pack_forget()
+
         self.run_btn.configure(
             state="disabled",
             text="Running...",
@@ -2765,11 +2888,14 @@ class BarcoIDApp:
         sample_col: str,
         morpho_col: str,
     ):
-        def _progress(stage: str, pct: float):
-            self.ui_queue.put(("progress", (stage, pct)))
+        def _progress(stage: str, pct: float, metrics: Optional[Dict[str, Any]] = None):
+            self.ui_queue.put(("progress", (stage, pct, metrics)))
 
         def _service(name: str, status: str):
             self.ui_queue.put(("service", (name, status)))
+
+        def _preliminary(rows: List[Dict[str, Any]], prelim_path: Optional[Path]):
+            self.ui_queue.put(("preliminary_data", (rows, prelim_path)))
 
         try:
             pipeline = BarcoIDPipeline(config)
@@ -2780,6 +2906,7 @@ class BarcoIDApp:
                 morpho_col=morpho_col,
                 progress_callback=_progress,
                 service_callback=_service,
+                preliminary_callback=_preliminary,
             )
             xlsx_path = (
                 Path(config.output_dir) / f"{fasta_path.stem}_multi_source_identification.xlsx"
@@ -2817,13 +2944,70 @@ class BarcoIDApp:
                 self._set_service_states(**{srv_name: srv_status})
 
             elif event == "progress":
-                stage, pct = payload
+                payload_tuple = payload
+                if isinstance(payload_tuple, tuple) and len(payload_tuple) == 3:
+                    stage, pct, metrics = payload_tuple
+                else:
+                    stage, pct = payload_tuple
+                    metrics = None
+
                 self.stage_var.set(stage)
                 self.progress_var.set(pct)
+
+                if metrics:
+                    elapsed_str = self._format_duration(metrics.get("elapsed_seconds", 0.0))
+                    eta_str = self._format_duration(metrics.get("eta_seconds", 0.0))
+                    speed = metrics.get("speed", 0.0)
+                    done = metrics.get("completed", 0)
+                    total = metrics.get("total", 0)
+                    pct_val = metrics.get("pct", pct)
+
+                    eta_text = (
+                        f"Elapsed: {elapsed_str} | ETA: ~{eta_str} | "
+                        f"Speed: {speed:.1f} seq/s | Completed: {done} / {total} ({pct_val:.1f}%)"
+                    )
+                    self.eta_var.set(eta_text)
+
+            elif event == "preliminary_data":
+                prelim_rows, prelim_xlsx = payload
+                self.preliminary_rows = prelim_rows
+                if prelim_xlsx and Path(prelim_xlsx).exists():
+                    self.preliminary_xlsx_path = Path(prelim_xlsx)
+                    self.last_excel_path = Path(prelim_xlsx)
+                    self.open_excel_btn.configure(
+                        bg=PALETTE["primary"],
+                        fg="#FFFFFF",
+                        text="Open Preliminary Excel Report",
+                    )
+
+                # Show and activate Check Preliminary Results button
+                self.preliminary_btn.configure(
+                    state="normal",
+                    text=f"Check Preliminary Results ({len(prelim_rows)})  ",
+                    bg=PALETTE["primary_tint"],
+                    fg=PALETTE["text_dark"],
+                )
+                self.preliminary_btn.pack(side="right", padx=(0, 10))
+
+                # Live refresh if user is currently inspecting Step 4
+                if self.current_step == 3:
+                    self.populate_results_table(prelim_rows)
+                    counts = {
+                        "CONCORDANT": 0,
+                        "NEW_ASSIGNMENT": 0,
+                        "MISMATCH_ALERT": 0,
+                        "NO_MATCH": 0,
+                    }
+                    for r in prelim_rows:
+                        st = r.get("concordance_status", "")
+                        if st in counts:
+                            counts[st] += 1
+                    self._update_summary_cards(len(prelim_rows), counts)
 
             elif event == "done":
                 rows, xlsx_path, is_dry_run = payload
                 self.is_running = False
+                self.preliminary_btn.pack_forget()
                 self.run_btn.configure(
                     state="normal",
                     text="Run Identification",

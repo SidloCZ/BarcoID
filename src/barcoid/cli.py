@@ -161,6 +161,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Prune empty/unresolved entries from persistent cache to re-evaluate failed queries without purging valid matches.",
     )
     parser.add_argument(
+        "--enable-preliminary",
+        dest="enable_preliminary",
+        action="store_true",
+        default=True,
+        help="Enable progressive chunking and preliminary exports (default: True).",
+    )
+    parser.add_argument(
+        "--no-preliminary",
+        dest="enable_preliminary",
+        action="store_false",
+        help="Disable preliminary disk exports during execution (reduces disk writes on huge datasets).",
+    )
+    parser.add_argument(
+        "--preliminary-interval",
+        "--chunk-size",
+        dest="preliminary_interval",
+        type=int,
+        default=50,
+        help="Number of sequences per incremental progressive chunk (default: 50).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         dest="verbose",
@@ -219,6 +240,8 @@ def main(args=None):
         dry_run=parsed_args.dry_run,
         force_refresh=parsed_args.force_refresh,
         skip_ncbi=parsed_args.skip_ncbi,
+        enable_preliminary_results=parsed_args.enable_preliminary,
+        preliminary_interval=parsed_args.preliminary_interval,
         local_blast_db=parsed_args.local_blast_db,
         ncbi_email=parsed_args.ncbi_email,
         ncbi_api_key=parsed_args.ncbi_api_key,

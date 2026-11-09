@@ -1,8 +1,10 @@
 """
-Master pipeline orchestrator for BarcoID with concurrent multi-engine execution.
+Master pipeline orchestrator for BarcoID with progressive chunking and multi-engine execution.
 """
 
+import inspect
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -44,17 +46,27 @@ class BarcoIDPipeline:
         metadata_path: Optional[Path] = None,
         sample_col: str = "sample_id",
         morpho_col: str = "field_morphospecies",
-        progress_callback: Optional[Callable[[str, float], None]] = None,
+        progress_callback: Optional[Callable[..., None]] = None,
         service_callback: Optional[Callable[[str, str], None]] = None,
+        preliminary_callback: Optional[
+            Callable[[List[Dict[str, Any]], Optional[Path]], None]
+        ] = None,
     ) -> List[Dict[str, Any]]:
-        """Executes the multi-source pipeline end-to-end with parallel engine queries."""
+        """Executes the multi-source pipeline end-to-end with progressive chunking and ETA tracking."""
 
-        def _notify(stage: str, pct: float):
+        def _notify(stage: str, pct: float, metrics: Optional[Dict[str, Any]] = None):
             if progress_callback:
                 try:
-                    progress_callback(stage, pct)
+                    sig = inspect.signature(progress_callback)
+                    if len(sig.parameters) >= 3:
+                        progress_callback(stage, pct, metrics)
+                    else:
+                        progress_callback(stage, pct)
                 except Exception:
-                    pass
+                    try:
+                        progress_callback(stage, pct, metrics)
+                    except TypeError:
+                        progress_callback(stage, pct)
 
         def _srv(name: str, status: str):
             if service_callback:
@@ -64,24 +76,24 @@ class BarcoIDPipeline:
                     pass
 
         _srv("morpho", "Active")
-        _notify("Ingesting FASTA sequences and morphological metadata...", 10.0)
+        _notify("Parsing FASTA sequences and metadata...", 10.0)
 
-        # 1. Ingest sequences
+        # 1. Parse input FASTA
         sequences = FastaParser.read_sequences(fasta_path, max_sequences=self.config.max_sequences)
         if not sequences:
-            logger.warning("No sequences found in input file.")
-            _srv("morpho", "Done")
-            _notify("No sequences found in input file.", 100.0)
+            logger.warning(f"No valid sequences found in {fasta_path}.")
+            _notify("No sequences found.", 100.0)
             return []
 
-        # 2. Ingest external metadata if supplied
+        logger.info(f"Loaded {len(sequences)} sequence(s) from {fasta_path.name}")
+
+        # 2. Parse optional metadata sheet
         meta_parser = None
         if metadata_path and Path(metadata_path).exists():
-            meta_parser = MetadataParser(
-                metadata_path,
-                sample_col=sample_col,
-                morpho_col=morpho_col,
-                custom_prefix_map=self.config.custom_prefix_map,
+            meta_parser = MetadataParser(sample_id_col=sample_col, morphospecies_col=morpho_col)
+            meta_records = meta_parser.load(metadata_path)
+            logger.info(
+                f"Loaded {len(meta_records)} metadata record(s) from {Path(metadata_path).name}"
             )
 
         # Pre-parse headers & metadata so morphological priors are ready immediately
@@ -144,118 +156,157 @@ class BarcoIDPipeline:
             )
             return []
 
-        # 4. Run BOLD, NCBI, and GBIF concurrently in parallel threads
+        # 4. Progressive Chunking & Concurrent Multi-Engine Execution
         _srv("bold", "Active")
         _srv("gbif", "Active")
         if self.config.skip_ncbi:
             _srv("ncbi", "Skipped")
-            _notify(
-                f"Running BOLD ({len(sequences)} seqs) and GBIF in parallel (NCBI skipped)...",
-                35.0,
-            )
         else:
             _srv("ncbi", "Active")
-            _notify(
-                f"Running BOLD ({len(sequences)} seqs), NCBI BLAST ({len(sequences)} seqs), and GBIF in parallel...",
-                35.0,
-            )
 
         gbif_engine = GbifEngine(self.config, self.cache_manager)
-
-        def _run_bold() -> Dict[str, Dict[str, Any]]:
-            bold_engine = BoldEngine(self.config, self.cache_manager)
-            res = bold_engine.identify_sequences(sequences)
-            _srv("bold", "Done")
-            return res
-
-        def _run_ncbi() -> Dict[str, Dict[str, Any]]:
+        bold_engine = BoldEngine(self.config, self.cache_manager)
+        blast_engine = None
+        if not self.config.skip_ncbi:
             if self.config.local_blast_db and Path(self.config.local_blast_db).exists():
                 blast_engine = LocalBlastEngine(self.config, self.cache_manager)
-                res = blast_engine.identify_sequences(sequences)
             else:
-                remote_engine = RemoteBlastEngine(self.config, self.cache_manager)
-                res = remote_engine.identify_sequences(sequences)
-            _srv("ncbi", "Done")
-            return res
+                blast_engine = RemoteBlastEngine(self.config, self.cache_manager)
 
-        def _run_initial_gbif() -> Dict[str, Dict[str, Any]]:
-            if not initial_gbif_names:
-                return {}
-            return gbif_engine.match_batch(list(set(initial_gbif_names)))
+        # Pre-resolve initial morphological genera with GBIF
+        if initial_gbif_names:
+            gbif_engine.match_batch(list(set(initial_gbif_names)))
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            fut_bold = pool.submit(_run_bold)
-            fut_ncbi = None if self.config.skip_ncbi else pool.submit(_run_ncbi)
-            fut_gbif_init = pool.submit(_run_initial_gbif)
+        total_sequences = len(sequences)
+        chunk_size = max(1, self.config.preliminary_interval)
+        total_chunks = (total_sequences + chunk_size - 1) // chunk_size
 
-            gbif_results = fut_gbif_init.result()
-            bold_results = fut_bold.result()
-            if fut_ncbi is not None:
-                _notify("BOLD finished; awaiting remaining parallel streams...", 65.0)
-                ncbi_results = fut_ncbi.result()
-            else:
-                ncbi_results = {}
-                _notify("BOLD and initial GBIF finished.", 65.0)
-
-        # 5. Resolve any newly discovered candidate names from BOLD and NCBI hits via GBIF
-        _notify("Finalizing GBIF Taxonomic Backbone harmonization...", 82.0)
-        candidate_names = []
-        for hdr, _ in sequences:
-            b_tax = bold_results.get(hdr, {}).get("top_species") or bold_results.get(hdr, {}).get(
-                "top_genus"
-            )
-            n_tax = ncbi_results.get(hdr, {}).get("top_species") or ncbi_results.get(hdr, {}).get(
-                "top_genus"
-            )
-            if b_tax and b_tax not in gbif_results:
-                candidate_names.append(b_tax)
-            if n_tax and n_tax not in gbif_results:
-                candidate_names.append(n_tax)
-
-        if candidate_names:
-            gbif_results.update(gbif_engine.match_batch(list(set(candidate_names))))
-        _srv("gbif", "Done")
-
-        # 6. Synthesize metadata, evaluate concordance, and run QC
-        _notify("Computing Concordance Matrix & exporting reports...", 92.0)
-        rows: List[Dict[str, Any]] = []
-        for hdr, _ in sequences:
-            parsed_meta = parsed_by_hdr[hdr]
-            b_res = bold_results.get(hdr, {})
-            n_res = ncbi_results.get(hdr, {})
-
-            target_name = (
-                b_res.get("top_species") or n_res.get("top_species") or b_res.get("top_genus") or ""
-            )
-            g_res = gbif_results.get(target_name, {})
-
-            c_genus, c_species, status, conf = self.concordance_engine.evaluate(
-                parsed_meta["field_inferred_genus"], b_res, n_res, g_res
-            )
-            qc_flag = self.qc_auditor.audit(
-                parsed_meta["field_inferred_genus"], b_res, n_res, status
-            )
-
-            rows.append(
-                {
-                    "meta": parsed_meta,
-                    "bold": b_res,
-                    "ncbi": n_res,
-                    "gbif": g_res,
-                    "consensus_genus": c_genus,
-                    "consensus_species": c_species,
-                    "concordance_status": status,
-                    "confidence_score": conf,
-                    "qc_flag": qc_flag,
-                }
-            )
-
-        # 7. Finalize cache and export outputs
-        self.cache_manager.save()
         out_dir = Path(self.config.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-
         stem = Path(fasta_path).stem
+        prelim_xlsx_path = out_dir / f"{stem}_preliminary.xlsx"
+
+        start_time = time.time()
+        rows: List[Dict[str, Any]] = []
+
+        for chunk_idx, chunk_start in enumerate(range(0, total_sequences, chunk_size)):
+            chunk_seqs = sequences[chunk_start : chunk_start + chunk_size]
+            chunk_num = chunk_idx + 1
+
+            def _run_chunk_bold(seqs=chunk_seqs):
+                return bold_engine.identify_sequences(seqs)
+
+            def _run_chunk_ncbi(seqs=chunk_seqs):
+                if blast_engine:
+                    return blast_engine.identify_sequences(seqs)
+                return {}
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                fut_bold = pool.submit(_run_chunk_bold)
+                fut_ncbi = None if self.config.skip_ncbi else pool.submit(_run_chunk_ncbi)
+
+                chunk_bold_res = fut_bold.result()
+                chunk_ncbi_res = fut_ncbi.result() if fut_ncbi else {}
+
+            # Collect newly discovered candidate names for GBIF
+            chunk_candidates = []
+            for hdr, _ in chunk_seqs:
+                b_tax = chunk_bold_res.get(hdr, {}).get("top_species") or chunk_bold_res.get(
+                    hdr, {}
+                ).get("top_genus")
+                n_tax = chunk_ncbi_res.get(hdr, {}).get("top_species") or chunk_ncbi_res.get(
+                    hdr, {}
+                ).get("top_genus")
+                if b_tax:
+                    chunk_candidates.append(b_tax)
+                if n_tax:
+                    chunk_candidates.append(n_tax)
+
+            if chunk_candidates:
+                gbif_engine.match_batch(list(set(chunk_candidates)))
+
+            # Evaluate concordance & QC for this chunk
+            for hdr, _ in chunk_seqs:
+                parsed_meta = parsed_by_hdr[hdr]
+                b_res = chunk_bold_res.get(hdr, {})
+                n_res = chunk_ncbi_res.get(hdr, {})
+
+                target_name = (
+                    b_res.get("top_species")
+                    or n_res.get("top_species")
+                    or b_res.get("top_genus")
+                    or ""
+                )
+                g_res = gbif_engine.match_species(target_name) if target_name else {}
+
+                c_genus, c_species, status, conf = self.concordance_engine.evaluate(
+                    parsed_meta["field_inferred_genus"], b_res, n_res, g_res
+                )
+                qc_flag = self.qc_auditor.audit(
+                    parsed_meta["field_inferred_genus"], b_res, n_res, status
+                )
+
+                rows.append(
+                    {
+                        "meta": parsed_meta,
+                        "bold": b_res,
+                        "ncbi": n_res,
+                        "gbif": g_res,
+                        "consensus_genus": c_genus,
+                        "consensus_species": c_species,
+                        "concordance_status": status,
+                        "confidence_score": conf,
+                        "qc_flag": qc_flag,
+                    }
+                )
+
+            # Compute progress, speed, and ETA
+            completed_count = len(rows)
+            pct = round((completed_count / total_sequences) * 100.0, 1)
+            elapsed = time.time() - start_time
+            speed = completed_count / elapsed if elapsed > 0 else 0.0
+            remaining_seqs = total_sequences - completed_count
+            eta_seconds = (remaining_seqs / speed) if speed > 0 else 0.0
+
+            eta_metrics = {
+                "completed": completed_count,
+                "total": total_sequences,
+                "pct": pct,
+                "elapsed_seconds": elapsed,
+                "eta_seconds": eta_seconds,
+                "speed": speed,
+                "chunk": chunk_num,
+                "total_chunks": total_chunks,
+            }
+
+            stage_msg = (
+                f"Processed {completed_count}/{total_sequences} sequence(s) "
+                f"(Chunk {chunk_num}/{total_chunks}, {speed:.1f} seq/s)"
+            )
+            _notify(stage_msg, pct, eta_metrics)
+
+            # Progressive preliminary export if enabled
+            if self.config.enable_preliminary_results and completed_count < total_sequences:
+                try:
+                    ExcelExporter.export(rows, prelim_xlsx_path)
+                    if preliminary_callback:
+                        preliminary_callback(list(rows), prelim_xlsx_path)
+                except Exception as ex_err:
+                    logger.warning(f"Could not export preliminary Excel: {ex_err}")
+            elif preliminary_callback:
+                preliminary_callback(list(rows), None)
+
+            # Save dirty caches
+            self.cache_manager.save()
+
+        # All chunks completed
+        _srv("bold", "Done")
+        if not self.config.skip_ncbi:
+            _srv("ncbi", "Done")
+        _srv("gbif", "Done")
+
+        # 5. Finalize cache and export outputs
+        self.cache_manager.save()
         xlsx_path = out_dir / f"{stem}_multi_source_identification.xlsx"
         tsv_path = out_dir / f"{stem}_identification.tsv"
         report_path = out_dir / f"{stem}_qc_report.md"
