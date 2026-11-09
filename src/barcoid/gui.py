@@ -847,6 +847,16 @@ class BarcoIDApp:
             "NO_MATCH": tk.StringVar(value="0"),
         }
         self.summary_cards: Dict[str, Tuple[tk.Frame, tk.Label, tk.Label]] = {}
+        self.active_status_filter: str = "TOTAL"
+        self.all_results_matrix: List[List[str]] = []
+        self.summary_counts: Dict[str, int] = {
+            "CONCORDANT": 0,
+            "NEW_ASSIGNMENT": 0,
+            "MISMATCH_ALERT": 0,
+            "NO_MATCH": 0,
+        }
+        self.summary_total: int = 0
+        self.filter_indicator_var: tk.StringVar = tk.StringVar(value="")
 
         self.last_excel_path: Optional[Path] = None
         self.last_error_trace: str = ""
@@ -1912,11 +1922,20 @@ class BarcoIDApp:
 
         self._make_button(
             res_bar, "Reset Column Widths", self.reset_results_column_widths, primary=False
-        ).pack(side="left")
+        ).pack(side="left", padx=(0, 14))
+
+        self.filter_indicator_lbl = tk.Label(
+            res_bar,
+            textvariable=self.filter_indicator_var,
+            font=FONT_HEADING,
+            fg=PALETTE["primary"],
+            bg=PALETTE["card_inner"],
+        )
+        self.filter_indicator_lbl.pack(side="left")
 
         tk.Label(
             res_bar,
-            text="Double-click any column header or drag borders to expand/resize columns.",
+            text="Click count boxes to filter. Double-click headers to auto-fit.",
             font=FONT_BODY,
             fg=PALETTE["text_dark"],
             bg=PALETTE["card_inner"],
@@ -1944,10 +1963,16 @@ class BarcoIDApp:
                 highlightthickness=1,
                 padx=14,
                 pady=8,
+                cursor="hand2",
             )
             card.grid(row=0, column=idx, sticky="ew", padx=(0 if idx == 0 else 8, 0))
             title_lbl = tk.Label(
-                card, text=label_text, font=FONT_BODY, fg=PALETTE["text_dark"], bg=bg_init
+                card,
+                text=label_text,
+                font=FONT_BODY,
+                fg=PALETTE["text_dark"],
+                bg=bg_init,
+                cursor="hand2",
             )
             title_lbl.pack(side="left")
             val_lbl = tk.Label(
@@ -1956,9 +1981,35 @@ class BarcoIDApp:
                 font=FONT_HEADING,
                 fg=PALETTE["text_dark"],
                 bg=bg_init,
+                cursor="hand2",
             )
             val_lbl.pack(side="right")
             self.summary_cards[key] = (card, title_lbl, val_lbl)
+
+            def _on_card_click(_event, k=key):
+                self.on_summary_card_clicked(k)
+
+            card.bind("<Button-1>", _on_card_click)
+            title_lbl.bind("<Button-1>", _on_card_click)
+            val_lbl.bind("<Button-1>", _on_card_click)
+
+            def _on_card_enter(_event, k=key):
+                if getattr(self, "active_status_filter", "TOTAL") != k:
+                    c, _t, _v = self.summary_cards[k]
+                    c.configure(highlightbackground=PALETTE["primary"], highlightthickness=2)
+
+            def _on_card_leave(_event, k=key):
+                if getattr(self, "active_status_filter", "TOTAL") != k:
+                    c, _t, _v = self.summary_cards[k]
+                    c.configure(highlightthickness=1)
+                    self._refresh_summary_card_colors()
+
+            card.bind("<Enter>", _on_card_enter)
+            card.bind("<Leave>", _on_card_leave)
+            title_lbl.bind("<Enter>", _on_card_enter)
+            title_lbl.bind("<Leave>", _on_card_leave)
+            val_lbl.bind("<Enter>", _on_card_enter)
+            val_lbl.bind("<Leave>", _on_card_leave)
 
         # Footer Navigation (with SVG arrow icon)
         footer4 = tk.Frame(page, bg=PALETTE["card_inner"])
@@ -1969,7 +2020,7 @@ class BarcoIDApp:
         )
         self.back_to_run_btn.pack(side="left")
 
-        # Scrollable Canvas Grid with ModernScrollbars
+        # Scrollable Canvas Grid with Sticky Header and ModernScrollbars
         grid_wrap = tk.Frame(
             page,
             bg=PALETTE["card_inner"],
@@ -1978,17 +2029,68 @@ class BarcoIDApp:
         )
         grid_wrap.pack(fill="both", expand=True)
 
-        self.results_canvas = tk.Canvas(grid_wrap, bg=PALETTE["card_inner"], highlightthickness=0)
+        row_h = max(34, int(34 * self.dpi_scale))
+
+        # 1. Sticky Header Canvas (stays fixed when scrolling down)
+        self.results_header_canvas = tk.Canvas(
+            grid_wrap,
+            bg=PALETTE["primary_tint"],
+            highlightthickness=0,
+            height=row_h,
+        )
+        self.results_header_canvas.grid(row=0, column=0, sticky="ew")
+
+        # Corner spacer above vertical scrollbar
+        header_corner = tk.Frame(grid_wrap, bg=PALETTE["primary_tint"], height=row_h)
+        header_corner.grid(row=0, column=1, sticky="nsew")
+
+        # 2. Scrollable Body Canvas (Data rows)
+        self.results_canvas = tk.Canvas(
+            grid_wrap,
+            bg=PALETTE["card_inner"],
+            highlightthickness=0,
+        )
+        self.results_canvas.grid(row=1, column=0, sticky="nsew")
+
+        # 3. ModernScrollbars
         res_vsb = ModernScrollbar(grid_wrap, orient="vertical", command=self.results_canvas.yview)
-        res_hsb = ModernScrollbar(grid_wrap, orient="horizontal", command=self.results_canvas.xview)
-        self.results_canvas.configure(yscrollcommand=res_vsb.set, xscrollcommand=res_hsb.set)
+        res_vsb.grid(row=1, column=1, sticky="ns")
 
-        self.results_canvas.grid(row=0, column=0, sticky="nsew")
-        res_vsb.grid(row=0, column=1, sticky="ns")
-        res_hsb.grid(row=1, column=0, sticky="ew")
-        grid_wrap.rowconfigure(0, weight=1)
+        def _on_results_hscroll(*args):
+            self.results_header_canvas.xview(*args)
+            self.results_canvas.xview(*args)
+
+        self.res_hsb = ModernScrollbar(grid_wrap, orient="horizontal", command=_on_results_hscroll)
+        self.res_hsb.grid(row=2, column=0, sticky="ew")
+
+        def _on_canvas_xscroll(first, last):
+            self.res_hsb.set(first, last)
+            self.results_header_canvas.xview_moveto(first)
+
+        self.results_canvas.configure(yscrollcommand=res_vsb.set, xscrollcommand=_on_canvas_xscroll)
+
+        grid_wrap.rowconfigure(0, weight=0)
+        grid_wrap.rowconfigure(1, weight=1)
+        grid_wrap.rowconfigure(2, weight=0)
         grid_wrap.columnconfigure(0, weight=1)
+        grid_wrap.columnconfigure(1, weight=0)
 
+        # Header events for resizing & double click
+        self.results_header_canvas.bind("<Motion>", self._on_header_motion)
+        self.results_header_canvas.bind("<ButtonPress-1>", self._on_header_press)
+        self.results_header_canvas.bind("<B1-Motion>", self._on_header_drag)
+        self.results_header_canvas.bind("<ButtonRelease-1>", self._on_results_release)
+        self.results_header_canvas.bind("<Double-Button-1>", self._on_header_double_click)
+        self.results_header_canvas.bind(
+            "<MouseWheel>",
+            lambda e: self.results_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
+        )
+        self.results_header_canvas.bind(
+            "<Shift-MouseWheel>",
+            lambda e: _on_results_hscroll("scroll", int(-1 * (e.delta / 120)), "units"),
+        )
+
+        # Body canvas events
         self.results_canvas.bind("<Motion>", self._on_results_motion)
         self.results_canvas.bind("<ButtonPress-1>", self._on_results_press)
         self.results_canvas.bind("<B1-Motion>", self._on_results_drag)
@@ -1998,33 +2100,130 @@ class BarcoIDApp:
             "<MouseWheel>",
             lambda e: self.results_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
         )
+        self.results_canvas.bind(
+            "<Shift-MouseWheel>",
+            lambda e: _on_results_hscroll("scroll", int(-1 * (e.delta / 120)), "units"),
+        )
 
         self.populate_results_table([])
 
     def _update_summary_cards(self, total: int, counts: Dict[str, int]):
-        """Updates the 5 segmented summary cards in Step 4 and highlights non-zero counts."""
+        """Updates the 5 segmented summary cards in Step 4 and refreshes active filter styles."""
+        self.summary_total = total
+        self.summary_counts = dict(counts)
         self.summary_card_vars["TOTAL"].set(str(total))
         for key in ("CONCORDANT", "NEW_ASSIGNMENT", "MISMATCH_ALERT", "NO_MATCH"):
-            val = counts.get(key, 0)
-            self.summary_card_vars[key].set(str(val))
+            self.summary_card_vars[key].set(str(counts.get(key, 0)))
+
+        self._refresh_summary_card_colors()
+
+        self.summary_var.set(
+            f"Total: {total}  CONCORDANT: {counts.get('CONCORDANT', 0)}  "
+            f"NEW_ASSIGNMENT: {counts.get('NEW_ASSIGNMENT', 0)}  "
+            f"MISMATCH_ALERT: {counts.get('MISMATCH_ALERT', 0)}  NO_MATCH: {counts.get('NO_MATCH', 0)}"
+        )
+
+    def _refresh_summary_card_colors(self):
+        """Refreshes the visual styles of the 5 cards based on current active filter and counts."""
+        total = getattr(self, "summary_total", 0)
+        counts = getattr(self, "summary_counts", {})
+        active = getattr(self, "active_status_filter", "TOTAL")
+
+        for key in ("TOTAL", "CONCORDANT", "NEW_ASSIGNMENT", "MISMATCH_ALERT", "NO_MATCH"):
+            if key not in self.summary_cards:
+                continue
             card, t_lbl, v_lbl = self.summary_cards[key]
-            if val > 0 and key == "CONCORDANT":
-                bg, fg, border = PALETTE["primary"], "#FFFFFF", PALETTE["primary"]
-            elif val > 0 and key == "NEW_ASSIGNMENT":
-                bg, fg, border = PALETTE["primary_tint"], PALETTE["text_dark"], PALETTE["primary"]
-            elif val > 0 and key == "MISMATCH_ALERT":
-                bg, fg, border = PALETTE["alert_tint"], PALETTE["text_dark"], PALETTE["border"]
+            val = total if key == "TOTAL" else counts.get(key, 0)
+
+            if active == key:
+                if key == "TOTAL":
+                    bg, fg, border = PALETTE["primary"], "#FFFFFF", PALETTE["primary"]
+                elif key == "CONCORDANT":
+                    bg, fg, border = PALETTE["primary"], "#FFFFFF", PALETTE["primary"]
+                elif key == "NEW_ASSIGNMENT":
+                    bg, fg, border = "#2E7D32", "#FFFFFF", "#2E7D32"
+                elif key == "MISMATCH_ALERT":
+                    bg, fg, border = "#D32F2F", "#FFFFFF", "#D32F2F"
+                else:
+                    bg, fg, border = "#424242", "#FFFFFF", "#424242"
             else:
-                bg, fg, border = PALETTE["card_inner"], PALETTE["text_dark"], PALETTE["border"]
-            card.configure(bg=bg, highlightbackground=border)
+                if key == "TOTAL":
+                    bg, fg, border = (
+                        PALETTE["primary_tint"],
+                        PALETTE["text_dark"],
+                        PALETTE["primary"],
+                    )
+                elif key == "CONCORDANT":
+                    if val > 0:
+                        bg, fg, border = (
+                            PALETTE["primary_tint"],
+                            PALETTE["text_dark"],
+                            PALETTE["primary"],
+                        )
+                    else:
+                        bg, fg, border = PALETTE["card_inner"], "#888888", PALETTE["border"]
+                elif key == "NEW_ASSIGNMENT":
+                    if val > 0:
+                        bg, fg, border = (
+                            PALETTE["primary_tint"],
+                            PALETTE["text_dark"],
+                            PALETTE["primary"],
+                        )
+                    else:
+                        bg, fg, border = PALETTE["card_inner"], "#888888", PALETTE["border"]
+                elif key == "MISMATCH_ALERT":
+                    if val > 0:
+                        bg, fg, border = PALETTE["alert_tint"], PALETTE["text_dark"], "#E57373"
+                    else:
+                        bg, fg, border = PALETTE["card_inner"], "#888888", PALETTE["border"]
+                else:
+                    bg, fg, border = PALETTE["card_inner"], PALETTE["text_dark"], PALETTE["border"]
+
+            card.configure(bg=bg, highlightbackground=border, highlightthickness=1)
             t_lbl.configure(bg=bg, fg=fg)
             v_lbl.configure(bg=bg, fg=fg)
 
-        self.summary_var.set(
-            f"Total: {total}  CONCORDANT: {counts['CONCORDANT']}  "
-            f"NEW_ASSIGNMENT: {counts['NEW_ASSIGNMENT']}  "
-            f"MISMATCH_ALERT: {counts['MISMATCH_ALERT']}  NO_MATCH: {counts['NO_MATCH']}"
-        )
+    def on_summary_card_clicked(self, key: str):
+        """Filters Step 4 results table when clicking any of the 5 summary count boxes."""
+        if getattr(self, "active_status_filter", "TOTAL") == key and key != "TOTAL":
+            # Clicking an active filter box again toggles back to TOTAL (show all)
+            self._apply_status_filter("TOTAL")
+        else:
+            self._apply_status_filter(key)
+
+    def _apply_status_filter(self, key: str):
+        """Filters displayed rows by concordance status and updates the indicator and table."""
+        self.active_status_filter = key
+        all_rows = getattr(self, "all_results_matrix", [])
+        status_labels = {
+            "TOTAL": "All Sequences",
+            "CONCORDANT": "Concordant",
+            "NEW_ASSIGNMENT": "New Assignment",
+            "MISMATCH_ALERT": "Mismatch Alert",
+            "NO_MATCH": "No Match",
+        }
+
+        if not key or key == "TOTAL":
+            self.results_matrix = list(all_rows)
+            filt_name = "All"
+        else:
+            self.results_matrix = [r for r in all_rows if len(r) > 9 and r[9] == key]
+            filt_name = status_labels.get(key, key)
+
+        if hasattr(self, "filter_indicator_var"):
+            if key != "TOTAL":
+                self.filter_indicator_var.set(
+                    f"Showing {len(self.results_matrix)} of {len(all_rows)} ({filt_name})  •  Click card again to show all"
+                )
+            else:
+                self.filter_indicator_var.set(
+                    f"Showing all {len(all_rows)} sequences  •  Click any box above to filter"
+                )
+
+        self._refresh_summary_card_colors()
+        if hasattr(self, "results_canvas"):
+            self.results_canvas.yview_moveto(0.0)
+            self._redraw_results_canvas()
 
     # ------------------------------------------------------------------
     # Interactive Results Table Rendering, Truncation & Resizing
@@ -2060,7 +2259,8 @@ class BarcoIDApp:
         """Computes the exact pixel width needed to display the header and all values in `col_idx`."""
         col_name = RESULTS_COLUMNS[col_idx]
         max_px = self.tk_font_heading.measure(col_name) + 28
-        for row_vals in self.results_matrix:
+        rows_to_check = getattr(self, "all_results_matrix", self.results_matrix)
+        for row_vals in rows_to_check:
             if col_idx < len(row_vals):
                 val_str = row_vals[col_idx]
                 _, _, is_bold = get_cell_highlight(col_name, val_str)
@@ -2104,7 +2304,9 @@ class BarcoIDApp:
     def populate_results_table(self, rows: List[Dict[str, Any]]):
         """Extracts cell values from pipeline rows, auto-fits the 4 primary columns, and draws the grid."""
         self.last_results_rows = list(rows)
-        self.results_matrix = []
+        self.all_results_matrix = []
+        counts = {"CONCORDANT": 0, "NEW_ASSIGNMENT": 0, "MISMATCH_ALERT": 0, "NO_MATCH": 0}
+
         for r in rows:
             meta = r.get("meta", {})
             bold = r.get("bold", {})
@@ -2113,8 +2315,11 @@ class BarcoIDApp:
 
             bold_pct = bold.get("top_pct_identity", 0.0)
             ncbi_pct = ncbi.get("top_pct_identity", 0.0)
+            status = str(r.get("concordance_status", ""))
+            if status in counts:
+                counts[status] += 1
 
-            self.results_matrix.append(
+            self.all_results_matrix.append(
                 [
                     str(meta.get("sample_id", "")),
                     str(meta.get("field_morpho_code", "")),
@@ -2125,61 +2330,83 @@ class BarcoIDApp:
                     f"{ncbi_pct:.1f}" if ncbi_pct else "",
                     str(gbif.get("canonicalName", "")),
                     str(r.get("consensus_species") or r.get("consensus_genus") or ""),
-                    str(r.get("concordance_status", "")),
+                    status,
                     str(r.get("qc_flag", "")),
                 ]
             )
 
-        self.reset_results_column_widths()
+        self.summary_counts = counts
+        self.summary_total = len(rows)
+        self._update_summary_cards(len(rows), counts)
+
+        self.results_col_widths = self._default_results_col_widths()
+        for idx, col_name in enumerate(RESULTS_COLUMNS):
+            if col_name in PRIMARY_EXPANDED_COLUMNS:
+                self.results_col_widths[idx] = max(
+                    self.results_col_widths[idx], self._compute_autofit_col_width(idx)
+                )
+
+        current_filt = getattr(self, "active_status_filter", "TOTAL")
+        self._apply_status_filter(current_filt)
 
     def _redraw_results_canvas(self):
-        """Renders the Step 4 table using current `self.results_col_widths` with cell clipping."""
+        """Renders the Step 4 table with sticky header canvas and scrollable data rows canvas."""
+        row_h = max(34, int(34 * self.dpi_scale))
+
+        # 1. Redraw Sticky Header Row
+        if hasattr(self, "results_header_canvas") and self.results_header_canvas.winfo_exists():
+            hc = self.results_header_canvas
+            hc.delete("all")
+            x_offset = 0
+            for col_idx, col_name in enumerate(RESULTS_COLUMNS):
+                w = self.results_col_widths[col_idx]
+                hc.create_rectangle(
+                    x_offset,
+                    0,
+                    x_offset + w,
+                    row_h,
+                    fill=PALETTE["primary_tint"],
+                    outline=PALETTE["border"],
+                    width=1,
+                )
+                clipped_hdr = self._fit_text_to_width(col_name, w, is_bold=True)
+                hc.create_text(
+                    x_offset + 8,
+                    row_h // 2,
+                    text=clipped_hdr,
+                    anchor="w",
+                    fill=PALETTE["text_dark"],
+                    font=FONT_HEADING,
+                )
+                x_offset += w
+            total_w = x_offset
+            hc.configure(scrollregion=(0, 0, total_w, row_h))
+        else:
+            total_w = sum(self.results_col_widths)
+
+        # 2. Redraw Data Rows on Body Canvas
         c = self.results_canvas
         c.delete("all")
 
-        row_h = max(34, int(34 * self.dpi_scale))
-
-        # 1. Draw Header Row
-        x_offset = 0
-        for col_idx, col_name in enumerate(RESULTS_COLUMNS):
-            w = self.results_col_widths[col_idx]
-            c.create_rectangle(
-                x_offset,
-                0,
-                x_offset + w,
-                row_h,
-                fill=PALETTE["primary_tint"],
-                outline=PALETTE["border"],
-                width=1,
-            )
-            clipped_hdr = self._fit_text_to_width(col_name, w, is_bold=True)
-            c.create_text(
-                x_offset + 8,
-                row_h // 2,
-                text=clipped_hdr,
-                anchor="w",
-                fill=PALETTE["text_dark"],
-                font=FONT_HEADING,
-            )
-            x_offset += w
-
-        total_w = x_offset
-
         if not self.results_matrix:
+            filt_key = getattr(self, "active_status_filter", "TOTAL")
+            if filt_key != "TOTAL" and getattr(self, "all_results_matrix", []):
+                msg = f"No {filt_key} sequences found in the current results."
+            else:
+                msg = "No results yet — Run Identification in Step 3 to view the concordance table here."
             c.create_text(
                 20,
-                row_h + 28,
-                text="No results yet — Run Identification in Step 3 to view the concordance table here.",
+                row_h // 2 + 10,
+                text=msg,
                 anchor="w",
                 fill=PALETTE["text_dark"],
                 font=FONT_BODY,
             )
-            c.configure(scrollregion=(0, 0, total_w, row_h * 3))
+            c.configure(scrollregion=(0, 0, total_w, row_h * 2))
             return
 
-        # 2. Draw Data Rows (with single-cell highlighting on Concordance_Status & QC_Flag)
         for r_idx, cell_values in enumerate(self.results_matrix):
-            y0 = (r_idx + 1) * row_h
+            y0 = r_idx * row_h
             y1 = y0 + row_h
             x_pos = 0
             for col_idx, val_str in enumerate(cell_values):
@@ -2201,7 +2428,7 @@ class BarcoIDApp:
                 )
                 x_pos += w
 
-        total_h = (len(self.results_matrix) + 1) * row_h
+        total_h = len(self.results_matrix) * row_h
         c.configure(scrollregion=(0, 0, total_w, total_h))
 
     def _find_border_col_index(self, canvas_x: float, tolerance: int = 6) -> Optional[int]:
@@ -2222,15 +2449,48 @@ class BarcoIDApp:
             acc += w
         return None
 
+    def _on_header_motion(self, event):
+        cx = self.results_header_canvas.canvasx(event.x)
+        border_idx = self._find_border_col_index(cx)
+        if border_idx is not None:
+            self.results_header_canvas.configure(cursor="sb_h_double_arrow")
+        else:
+            self.results_header_canvas.configure(cursor="hand2")
+
+    def _on_header_press(self, event):
+        cx = self.results_header_canvas.canvasx(event.x)
+        border_idx = self._find_border_col_index(cx)
+        if border_idx is not None:
+            self._resizing_col_idx = border_idx
+            self._resize_start_x = int(cx)
+            self._resize_start_w = self.results_col_widths[border_idx]
+
+    def _on_header_drag(self, event):
+        if self._resizing_col_idx is None:
+            return
+        cx = int(self.results_header_canvas.canvasx(event.x))
+        new_w = max(38, self._resize_start_w + (cx - self._resize_start_x))
+        self.results_col_widths[self._resizing_col_idx] = new_w
+        self._redraw_results_canvas()
+
+    def _on_header_double_click(self, event):
+        """Double-clicking a column border or header on header canvas expands/toggles the column."""
+        cx = self.results_header_canvas.canvasx(event.x)
+        border_idx = self._find_border_col_index(cx, tolerance=8)
+        if border_idx is not None:
+            self.auto_expand_results_column(border_idx)
+            return
+        col_idx = self._find_clicked_col_index(cx)
+        if col_idx is not None:
+            self.auto_expand_results_column(col_idx)
+
     def _on_results_motion(self, event):
         cx = self.results_canvas.canvasx(event.x)
         border_idx = self._find_border_col_index(cx)
         if border_idx is not None:
             self.results_canvas.configure(cursor="sb_h_double_arrow")
         else:
-            self.results_canvas.configure(
-                cursor="hand2" if event.y <= max(34, int(34 * self.dpi_scale)) else ""
-            )
+            self.results_canvas.configure(cursor="")
 
     def _on_results_press(self, event):
         cx = self.results_canvas.canvasx(event.x)
@@ -2252,7 +2512,7 @@ class BarcoIDApp:
         self._resizing_col_idx = None
 
     def _on_results_double_click(self, event):
-        """Double-clicking a column border or column header expands/toggles the column like in Excel."""
+        """Double-clicking a column border in body canvas expands/toggles the column like in Excel."""
         cx = self.results_canvas.canvasx(event.x)
         border_idx = self._find_border_col_index(cx, tolerance=8)
         if border_idx is not None:

@@ -474,3 +474,91 @@ def test_pipeline_e2e_with_metadata(tmp_path: Path):
     assert res["meta"]["field_morpho_code"] == "Pheidole megacephala"
     assert res["meta"]["field_inferred_genus"] == "Pheidole"
     assert res["concordance_status"] == "CONCORDANT"
+
+
+def test_results_sticky_header_and_summary_filtering():
+    """Verifies that the results table has a sticky header and summary cards act as interactive filters."""
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = BarcoIDApp(root)
+        app.show_step(3)
+
+        # 1. Sticky Header Structure
+        assert hasattr(app, "results_header_canvas")
+        assert hasattr(app, "results_canvas")
+        assert app.results_header_canvas != app.results_canvas
+
+        test_data = [
+            {
+                "meta": {"sample_id": f"SMP_{i:03d}"},
+                "bold": {"top_species": f"Species {i}", "top_pct_identity": 99.0},
+                "ncbi": {"top_species": f"Species {i}", "top_pct_identity": 99.0},
+                "gbif": {"canonicalName": f"Species {i}"},
+                "consensus_species": f"Species {i}",
+                "concordance_status": status,
+                "qc_flag": "OK",
+            }
+            for i, status in enumerate(
+                [
+                    "CONCORDANT",
+                    "CONCORDANT",
+                    "NEW_ASSIGNMENT",
+                    "MISMATCH_ALERT",
+                    "NO_MATCH",
+                ]
+            )
+        ]
+
+        app.populate_results_table(test_data)
+
+        # Total rows = 5, all shown initially
+        assert len(app.all_results_matrix) == 5
+        assert len(app.results_matrix) == 5
+        assert app.summary_card_vars["TOTAL"].get() == "5"
+        assert app.summary_card_vars["CONCORDANT"].get() == "2"
+        assert app.summary_card_vars["NEW_ASSIGNMENT"].get() == "1"
+        assert app.summary_card_vars["MISMATCH_ALERT"].get() == "1"
+        assert app.summary_card_vars["NO_MATCH"].get() == "1"
+
+        # 2. Test Sticky Header: Vertical scrolling affects only data canvas
+        app.results_canvas.yview_moveto(0.5)
+        # Header canvas yview remains at top (0.0)
+        assert app.results_header_canvas.yview()[0] == 0.0
+
+        # 3. Test Clicking Summary Filter Cards
+        # Click CONCORDANT -> filters to 2 rows
+        app.on_summary_card_clicked("CONCORDANT")
+        assert len(app.results_matrix) == 2
+        assert all(r[9] == "CONCORDANT" for r in app.results_matrix)
+        assert app.active_status_filter == "CONCORDANT"
+        assert "Showing 2 of 5 (Concordant)" in app.filter_indicator_var.get()
+        # Active card styling
+        c_card, c_title, c_val = app.summary_cards["CONCORDANT"]
+        assert c_card.cget("bg") == PALETTE["primary"]
+        assert c_val.cget("fg") == "#FFFFFF"
+
+        # Click CONCORDANT again -> toggles back to TOTAL (shows all 5 rows)
+        app.on_summary_card_clicked("CONCORDANT")
+        assert len(app.results_matrix) == 5
+        assert app.active_status_filter == "TOTAL"
+        assert "Showing all 5 sequences" in app.filter_indicator_var.get()
+
+        # Click MISMATCH_ALERT -> filters to 1 row
+        app.on_summary_card_clicked("MISMATCH_ALERT")
+        assert len(app.results_matrix) == 1
+        assert app.results_matrix[0][9] == "MISMATCH_ALERT"
+        assert app.active_status_filter == "MISMATCH_ALERT"
+        m_card, m_title, m_val = app.summary_cards["MISMATCH_ALERT"]
+        assert m_card.cget("bg") == "#D32F2F"
+        assert m_val.cget("fg") == "#FFFFFF"
+
+        # Click TOTAL card -> resets filter to all 5
+        app.on_summary_card_clicked("TOTAL")
+        assert len(app.results_matrix) == 5
+        assert app.active_status_filter == "TOTAL"
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
