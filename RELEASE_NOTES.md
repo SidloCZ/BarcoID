@@ -1,5 +1,50 @@
 # BarcoID Release Notes
 
+## Version 0.4.0
+
+**Branded Splash Screen, Interactive Summary Card Filters, Sticky Table Headers, NCBI QBLAST Pacing & "Re-run Failed" Workflow**
+
+---
+
+### What's New & Key Highlights in Version 0.4.0
+
+- **High-Resolution Branded Splash Screen:**
+  - Added an instant, responsive 640x420 startup splash screen for the standalone Windows executable (`BarcoID.exe`).
+  - Features the prominent BarcoID ant logo with stylized green DNA barcode stripes, high-contrast Segoe UI typography, version badge (`v0.4.0`), and an emerald progress line.
+  - Provides immediate visual feedback during cold starts while the PyInstaller bootloader decompressing the runtime.
+  - Automatically and smoothly closes via `pyi_splash.close()` as soon as the main GUI wizard window is fully initialized.
+
+- **Sticky Table Headers Across All Data Previews:**
+  - In both Step 2 (Metadata & FASTA preview) and Step 4 (Results overview), table header rows now remain pinned and permanently visible while scrolling through hundreds or thousands of sequence rows.
+  - Column alignment and cell borders remain synchronized during horizontal and vertical scrolling.
+
+- **Interactive Summary Card Filtering & Jitter Fix:**
+  - Summary metric cards on the Results screen (`Total Sequences`, `Concordant`, `New Assignment`, `Mismatch Alert`, `No Match`) are now interactive clickable filters.
+  - Clicking any card instantly filters the preview table to display only specimens belonging to that concordance category; clicking the active card or `Total Sequences` restores the complete dataset view.
+  - Fixed cursor hover micro-jitter by establishing uniform, static border highlight thickness.
+
+- **Resilient NCBI QBLAST Pacing & 100s Request Timeout:**
+  - Increased default per-request `ncbi_timeout` from 60s to **100s**, preventing premature timeout drops during peak traffic hours on NCBI servers.
+  - Enforced a compliant 10-second pacing delay between consecutive MegaBLAST batch submissions to respect NCBI Fair Use guidelines and prevent HTTP 429 rate limits.
+  - Added a 20-second regenerative cooldown following connection failures or timeouts before attempting subsequent batches.
+
+- **Visual Warning Highlighting for Failed Lookups:**
+  - Specimens where remote APIs timed out or failed are explicitly marked with `FAILED (Timeout)` or `FAILED (API Error)` in the GUI results table and exported multi-tab Excel workbooks (`.xlsx`).
+  - Cells with failed queries are styled with a soft pastel amber highlight (`#FFF9C4` background with bold `#7A5200` text) for immediate visual identification.
+
+- **Selective "Re-run Failed" Workflow with Decision Modal:**
+  - Added an interactive **"Re-run Failed"** button directly to the right of "Reset column widths" on the Results page.
+  - Automatically isolates failed sequences from the active run and re-executes only the failed lookups through the BarcoID pipeline without re-querying successfully identified specimens.
+  - On completion, presents a clean modal dialog allowing the user to either:
+    1. **Combine & Overwrite Original:** Seamlessly merges successful rerun lookups back into the original dataset and updates the table and export files.
+    2. **Save as New:** Preserves original results intact and writes a separate standalone dataset tagged with suffix `_rerun`.
+
+- **User Guide Navigation & Data Privacy Principles:**
+  - Renamed user manual to *"User Guide and App info"* and added quick-jump anchor link pills at the top for instant section navigation.
+  - Added explicit documentation detailing BarcoID's strict local-first data privacy guarantees: input FASTA files and metadata never leave the local computer, disk caches (`.id_cache/`) remain strictly on local storage, and diagnostic information is only submitted upon explicit user request via the GitHub issue reporter.
+
+---
+
 ## Version 0.3.1
 
 **Bug SVG Navigation, One-Click GitHub Issue Reporting & Metadata Parser Resilience**
