@@ -39,7 +39,7 @@ class BarcoIDConfig:
     ncbi_database: str = "nt"
     ncbi_entrez_query: str = "txid36668[Organism:exp]"  # Default: Formicidae
     ncbi_batch_size: int = 10  # Upgraded to 10 sequences per batch to reduce query count
-    ncbi_timeout: int = 60  # 60s per-request timeout
+    ncbi_timeout: int = 100  # 100s per-request timeout
     ncbi_poll_interval: int = 10  # Compliant 10s poll intervals per NCBI guidelines
     ncbi_delay_between_batches: float = (
         10.0  # 10s pacing pause between consecutive QBLAST submissions
