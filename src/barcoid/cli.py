@@ -107,8 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--ncbi-batch-size",
         dest="ncbi_batch_size",
         type=int,
-        default=5,
-        help="Batch size for remote NCBI QBLAST submissions (default: 5).",
+        default=10,
+        help="Batch size for remote NCBI QBLAST submissions (default: 10).",
     )
     parser.add_argument(
         "--dry-run",

@@ -1938,9 +1938,7 @@ class BarcoIDApp:
         self.rerun_failed_btn = self._make_button(
             res_bar, "Re-run Failed (0)", self._on_rerun_failed_clicked, primary=True
         )
-        self.rerun_failed_btn.configure(
-            state="disabled", bg=PALETTE["card_inner"], fg="#888888"
-        )
+        self.rerun_failed_btn.configure(state="disabled", bg=PALETTE["card_inner"], fg="#888888")
         self.rerun_failed_btn.pack(side="left", padx=(0, 14))
 
         self.filter_indicator_lbl = tk.Label(
@@ -2757,7 +2755,7 @@ class BarcoIDApp:
             if fpath.exists():
                 from barcoid.parsers.fasta import FastaParser
 
-                all_seqs = FastaParser.read_fasta(fpath)
+                all_seqs = FastaParser.read_sequences(fpath)
                 failed_ids = {r.get("meta", {}).get("sample_id", "") for r in failed_rows}
                 failed_ids.update({r.get("meta", {}).get("clean_id", "") for r in failed_rows})
                 failed_ids.update({r.get("meta", {}).get("full_header", "") for r in failed_rows})
@@ -3087,18 +3085,12 @@ class BarcoIDApp:
     def _on_rerun_failed_clicked(self):
         """Launches identification targeting ONLY the failed/timed out sequences."""
         if getattr(self, "is_running", False):
-            messagebox.showwarning(
-                "Run in Progress", "An identification run is already executing."
-            )
+            messagebox.showwarning("Run in Progress", "An identification run is already executing.")
             return
 
-        failed_rows = [
-            r for r in getattr(self, "last_results_rows", []) if self._is_row_failed(r)
-        ]
+        failed_rows = [r for r in getattr(self, "last_results_rows", []) if self._is_row_failed(r)]
         if not failed_rows:
-            messagebox.showinfo(
-                "No Failed Sequences", "There are no failed sequences to re-run."
-            )
+            messagebox.showinfo("No Failed Sequences", "There are no failed sequences to re-run.")
             return
 
         # Extract sequence strings from row metadata or from original FASTA file
@@ -3120,16 +3112,10 @@ class BarcoIDApp:
             if fpath.exists():
                 from barcoid.parsers.fasta import FastaParser
 
-                all_seqs = FastaParser.read_fasta(fpath)
-                failed_ids = {
-                    r.get("meta", {}).get("sample_id", "") for r in failed_rows
-                }
-                failed_ids.update(
-                    {r.get("meta", {}).get("clean_id", "") for r in failed_rows}
-                )
-                failed_ids.update(
-                    {r.get("meta", {}).get("full_header", "") for r in failed_rows}
-                )
+                all_seqs = FastaParser.read_sequences(fpath)
+                failed_ids = {r.get("meta", {}).get("sample_id", "") for r in failed_rows}
+                failed_ids.update({r.get("meta", {}).get("clean_id", "") for r in failed_rows})
+                failed_ids.update({r.get("meta", {}).get("full_header", "") for r in failed_rows})
                 subset_seqs = []
                 for h, s in all_seqs:
                     clean_h = h.lstrip(">").split(";")[0]
@@ -3170,9 +3156,7 @@ class BarcoIDApp:
         self.rerun_fasta_path = rerun_fasta
 
         meta_path = (
-            Path(self.metadata_var.get().strip())
-            if self.metadata_var.get().strip()
-            else None
+            Path(self.metadata_var.get().strip()) if self.metadata_var.get().strip() else None
         )
         sample_col = self.sample_col_var.get()
         morpho_col = self.morpho_col_var.get()
@@ -3225,14 +3209,8 @@ class BarcoIDApp:
         dialog.grab_set()
 
         try:
-            x = (
-                self.root.winfo_x()
-                + (self.root.winfo_width() - w_px) // 2
-            )
-            y = (
-                self.root.winfo_y()
-                + (self.root.winfo_height() - h_px) // 2
-            )
+            x = self.root.winfo_x() + (self.root.winfo_width() - w_px) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - h_px) // 2
             dialog.geometry(f"+{max(10, x)}+{max(10, y)}")
         except Exception:
             pass
@@ -3277,13 +3255,11 @@ class BarcoIDApp:
             btn_frame, "Combine & Overwrite Original", _on_combine, primary=True
         ).pack(side="left", padx=(0, 10))
 
-        self._make_button(
-            btn_frame, "Save as New (_rerun)", _on_save_new, primary=False
-        ).pack(side="left", padx=(0, 10))
+        self._make_button(btn_frame, "Save as New (_rerun)", _on_save_new, primary=False).pack(
+            side="left", padx=(0, 10)
+        )
 
-        self._make_button(
-            btn_frame, "Close", dialog.destroy, primary=False
-        ).pack(side="right")
+        self._make_button(btn_frame, "Close", dialog.destroy, primary=False).pack(side="right")
 
     def _combine_and_overwrite_results(
         self, rerun_rows: List[Dict[str, Any]], original_rows: List[Dict[str, Any]]

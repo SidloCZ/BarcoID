@@ -120,7 +120,7 @@ class RemoteBlastEngine:
                             err_res["error"] = "Timeout"
                             results[orig_hdr] = err_res
                     # Cool-down pause to allow remote NCBI queue to recover
-                    time.sleep(12.0)
+                    time.sleep(20.0)
 
             except Exception as e:
                 logger.error(f"NCBI QBLAST batch {batch_num} failed: {e}")
@@ -132,7 +132,7 @@ class RemoteBlastEngine:
                         err_res["error"] = str(e)
                         results[orig_hdr] = err_res
                 # Cool-down pause to allow remote NCBI queue to recover
-                time.sleep(12.0)
+                time.sleep(20.0)
 
         return results
 
