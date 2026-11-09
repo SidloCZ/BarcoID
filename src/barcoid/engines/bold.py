@@ -141,10 +141,17 @@ class BoldEngine:
             sub_id = sub_data.get("sub_id")
             if not sub_id:
                 logger.warning(f"No sub_id received from BOLD for {batch_name}: {sub_data}")
-                self._populate_empty(chunk, results)
+                self._populate_empty(chunk, results, failed=True, error_msg="No sub_id received")
                 return
 
             poll_results = self._poll_results(sub_id, headers, len(chunk))
+            if not poll_results:
+                logger.warning(
+                    f"No poll results received from BOLD for {batch_name} (timed out or empty)."
+                )
+                self._populate_empty(chunk, results, failed=True, error_msg="Timeout")
+                return
+
             for hdr, seq, _seq_hash in chunk:
                 res_obj = poll_results.get(hdr) or self._empty_result()
                 self.cache_manager.set_bold(seq, res_obj)
@@ -187,7 +194,7 @@ class BoldEngine:
 
         except Exception as e:
             logger.error(f"Failed processing {batch_name}: {e}")
-            self._populate_empty(chunk, results)
+            self._populate_empty(chunk, results, failed=True, error_msg=str(e))
 
     def _poll_results(
         self, sub_id: str, headers: Dict[str, str], expected_count: int
@@ -292,10 +299,21 @@ class BoldEngine:
         }
 
     def _populate_empty(
-        self, chunk: List[Tuple[str, str, str]], results: Dict[str, Dict[str, Any]]
+        self,
+        chunk: List[Tuple[str, str, str]],
+        results: Dict[str, Dict[str, Any]],
+        failed: bool = False,
+        error_msg: str = "",
     ):
         for hdr, seq, _ in chunk:
             res = self._empty_result()
-            results[hdr] = res
-            self.cache_manager.set_bold(seq, res)
-        self.cache_manager.save_bold()
+            if failed:
+                res["failed"] = True
+                res["error"] = error_msg or "Failed"
+                res["status"] = f"BOLD batch failed: {error_msg}"
+                results[hdr] = res
+            else:
+                results[hdr] = res
+                self.cache_manager.set_bold(seq, res)
+        if not failed:
+            self.cache_manager.save_bold()

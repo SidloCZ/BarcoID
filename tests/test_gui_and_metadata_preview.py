@@ -44,6 +44,8 @@ def test_single_cell_highlighting_rules():
     )
     assert get_cell_highlight("QC_Flag", "OK") == ("#4C9E45", "#FFFFFF", True)
     assert get_cell_highlight("QC_Flag", "CONTAMINATION_SUSPECT") == ("#FDECEC", "#111111", True)
+    assert get_cell_highlight("NCBI_Taxon", "FAILED (Timeout)") == ("#FFF9C4", "#7A5200", True)
+    assert get_cell_highlight("BOLD_Taxon", "FAILED (API Error)") == ("#FFF9C4", "#7A5200", True)
 
 
 def test_palette_and_4streams_svg():
@@ -289,10 +291,11 @@ def test_gui_interactive_column_picker():
         app.toggle_terminal_window()
         assert app.terminal_win is None
 
-        # Verify Step-by-Step User Guide Window opens and renders
+        # Verify User Guide and App Info Window opens, renders, and has section jump buttons
         assert app.guide_win is None
         app.open_guide_window()
         assert app.guide_win is not None
+        assert "User Guide and App info" in app.guide_win.title()
         assert len(app.guide_win._guide_photos) == 4
         assert any("Data Privacy" in step[0] for step in app.guide_win._guide_steps)
         app.guide_win.destroy()
@@ -542,7 +545,7 @@ def test_results_sticky_header_and_summary_filtering():
         app.on_summary_card_clicked("CONCORDANT")
         assert len(app.results_matrix) == 5
         assert app.active_status_filter == "TOTAL"
-        assert "Showing all 5 sequences" in app.filter_indicator_var.get()
+        assert app.filter_indicator_var.get() == ""
 
         # Click MISMATCH_ALERT -> filters to 1 row
         app.on_summary_card_clicked("MISMATCH_ALERT")
@@ -557,6 +560,97 @@ def test_results_sticky_header_and_summary_filtering():
         app.on_summary_card_clicked("TOTAL")
         assert len(app.results_matrix) == 5
         assert app.active_status_filter == "TOTAL"
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
+def test_failed_results_and_rerun_workflow(tmp_path: Path, monkeypatch):
+    """Verifies failed BOLD/NCBI results formatting, yellow cell styling, and Re-run workflow."""
+    monkeypatch.setattr("tkinter.messagebox.showinfo", lambda *args, **kwargs: None)
+    monkeypatch.setattr("tkinter.messagebox.showwarning", lambda *args, **kwargs: None)
+    monkeypatch.setattr("tkinter.messagebox.showerror", lambda *args, **kwargs: None)
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = BarcoIDApp(root)
+        app.show_step(3)
+
+        # 1. Setup mock results containing 1 failed NCBI lookup and 1 successful
+        rows = [
+            {
+                "meta": {
+                    "sample_id": "SMP_001",
+                    "full_header": "SMP_001_PlateA",
+                    "sequence": "ACGTACGT",
+                },
+                "bold": {"top_species": "Camponotus ligniperda", "top_pct_identity": 99.2},
+                "ncbi": {"failed": True, "error": "Timeout", "status": "NCBI query timed out"},
+                "gbif": {"canonicalName": "Camponotus ligniperda"},
+                "consensus_species": "Camponotus ligniperda",
+                "concordance_status": "CONCORDANT",
+                "qc_flag": "OK",
+            },
+            {
+                "meta": {
+                    "sample_id": "SMP_002",
+                    "full_header": "SMP_002_PlateA",
+                    "sequence": "TGCATGCA",
+                },
+                "bold": {"top_species": "Pheidole megacephala", "top_pct_identity": 98.8},
+                "ncbi": {"top_species": "Pheidole megacephala", "top_pct_identity": 99.0},
+                "gbif": {"canonicalName": "Pheidole megacephala"},
+                "consensus_species": "Pheidole megacephala",
+                "concordance_status": "CONCORDANT",
+                "qc_flag": "OK",
+            },
+        ]
+
+        app.populate_results_table(rows)
+
+        # 2. Verify row 0 has FAILED (Timeout) in NCBI_Taxon and row 1 has species
+        assert app.results_matrix[0][5] == "FAILED (Timeout)"
+        assert app.results_matrix[1][5] == "Pheidole megacephala"
+
+        # 3. Verify cell highlight rules: failed cell returns warning_tint (#FFF9C4)
+        bg, fg, bold = get_cell_highlight("NCBI_Taxon", app.results_matrix[0][5])
+        assert bg == PALETTE["warning_tint"]
+        assert fg == PALETTE["warning_text"]
+        assert bold is True
+
+        # 4. Verify Re-run Failed button is enabled with count 1
+        assert app._is_row_failed(rows[0]) is True
+        assert app._is_row_failed(rows[1]) is False
+        assert app.rerun_failed_btn.cget("state") == "normal"
+        assert "Re-run Failed (1)" in app.rerun_failed_btn.cget("text")
+
+        # 5. Verify Combine & Overwrite logic
+        rerun_resolved = [
+            {
+                "meta": {
+                    "sample_id": "SMP_001",
+                    "full_header": "SMP_001_PlateA",
+                    "sequence": "ACGTACGT",
+                },
+                "bold": {"top_species": "Camponotus ligniperda", "top_pct_identity": 99.2},
+                "ncbi": {"top_species": "Camponotus ligniperda", "top_pct_identity": 99.5},
+                "gbif": {"canonicalName": "Camponotus ligniperda"},
+                "consensus_species": "Camponotus ligniperda",
+                "concordance_status": "CONCORDANT",
+                "qc_flag": "OK",
+            }
+        ]
+
+        app.output_dir_var.set(str(tmp_path))
+        app._combine_and_overwrite_results(rerun_resolved, rows)
+
+        # Master results should now have 2 rows, neither failed
+        assert len(app.last_results_rows) == 2
+        assert app.results_matrix[0][5] == "Camponotus ligniperda"
+        assert app._is_row_failed(app.last_results_rows[0]) is False
+        assert app.rerun_failed_btn.cget("state") == "disabled"
     finally:
         try:
             root.destroy()

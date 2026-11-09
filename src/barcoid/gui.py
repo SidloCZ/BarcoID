@@ -49,6 +49,8 @@ PALETTE = {
     "primary_hover": "#3B8235",  # Hover green
     "primary_tint": "#EAF4E9",  # Soft green tint (always paired with #111111 text)
     "alert_tint": "#FDECEC",  # Soft alert cell highlight for MISMATCH_ALERT / QC flags
+    "warning_tint": "#FFF9C4",  # Soft yellow highlight for failed/timeout lookups
+    "warning_text": "#7A5200",  # Dark amber text for readability on warning_tint
     "text_dark": "#111111",  # High-contrast black text everywhere on light surfaces
     "text_muted": "#111111",  # No gray text: secondary labels also use crisp #111111
 }
@@ -502,9 +504,12 @@ def render_spinner_frame_photo(
 def get_cell_highlight(col_name: str, value: str) -> Tuple[str, str, bool]:
     """
     Returns (bg_color, fg_color, is_bold) for a single cell in the Step 4 Results table.
-    Only Concordance_Status and QC_Flag cells are colored; all other cells remain #FFFFFF / #111111.
+    Concordance_Status, QC_Flag, and failed BOLD/NCBI cells are colored; other cells remain #FFFFFF / #111111.
     """
     val = (value or "").strip()
+    if col_name in ("BOLD_Taxon", "NCBI_Taxon") and val.upper().startswith("FAILED"):
+        return PALETTE["warning_tint"], PALETTE["warning_text"], True
+
     if col_name == "Concordance_Status":
         if val == "CONCORDANT":
             return PALETTE["primary"], "#FFFFFF", True
@@ -1922,7 +1927,21 @@ class BarcoIDApp:
 
         self._make_button(
             res_bar, "Reset Column Widths", self.reset_results_column_widths, primary=False
-        ).pack(side="left", padx=(0, 14))
+        ).pack(side="left", padx=(0, 10))
+
+        self.rerun_failed_btn = self._make_button(
+            res_bar, "Re-run Failed (0)", self._on_rerun_failed_clicked, primary=True
+        )
+        self.rerun_failed_btn.configure(state="disabled", bg=PALETTE["card_inner"], fg="#888888")
+        self.rerun_failed_btn.pack(side="left", padx=(0, 14))
+
+        self.rerun_failed_btn = self._make_button(
+            res_bar, "Re-run Failed (0)", self._on_rerun_failed_clicked, primary=True
+        )
+        self.rerun_failed_btn.configure(
+            state="disabled", bg=PALETTE["card_inner"], fg="#888888"
+        )
+        self.rerun_failed_btn.pack(side="left", padx=(0, 14))
 
         self.filter_indicator_lbl = tk.Label(
             res_bar,
@@ -1996,12 +2015,10 @@ class BarcoIDApp:
             def _on_card_enter(_event, k=key):
                 if getattr(self, "active_status_filter", "TOTAL") != k:
                     c, _t, _v = self.summary_cards[k]
-                    c.configure(highlightbackground=PALETTE["primary"], highlightthickness=2)
+                    c.configure(highlightbackground=PALETTE["primary"])
 
             def _on_card_leave(_event, k=key):
                 if getattr(self, "active_status_filter", "TOTAL") != k:
-                    c, _t, _v = self.summary_cards[k]
-                    c.configure(highlightthickness=1)
                     self._refresh_summary_card_colors()
 
             card.bind("<Enter>", _on_card_enter)
@@ -2213,12 +2230,10 @@ class BarcoIDApp:
         if hasattr(self, "filter_indicator_var"):
             if key != "TOTAL":
                 self.filter_indicator_var.set(
-                    f"Showing {len(self.results_matrix)} of {len(all_rows)} ({filt_name})  •  Click card again to show all"
+                    f"Showing {len(self.results_matrix)} of {len(all_rows)} ({filt_name})"
                 )
             else:
-                self.filter_indicator_var.set(
-                    f"Showing all {len(all_rows)} sequences  •  Click any box above to filter"
-                )
+                self.filter_indicator_var.set("")
 
         self._refresh_summary_card_colors()
         if hasattr(self, "results_canvas"):
@@ -2319,14 +2334,41 @@ class BarcoIDApp:
             if status in counts:
                 counts[status] += 1
 
+            bold_val = str(bold.get("top_species") or bold.get("top_genus") or "")
+            if not bold_val and (
+                bold.get("failed")
+                or "failed" in str(bold.get("status", "")).lower()
+                or "timeout" in str(bold.get("status", "")).lower()
+            ):
+                bold_val = (
+                    "FAILED (Timeout)"
+                    if "timeout" in str(bold.get("error", "")).lower()
+                    or "timeout" in str(bold.get("status", "")).lower()
+                    else "FAILED"
+                )
+
+            ncbi_val = str(ncbi.get("top_species") or ncbi.get("top_genus") or "")
+            if not ncbi_val and (
+                ncbi.get("failed")
+                or "failed" in str(ncbi.get("status", "")).lower()
+                or "timed out" in str(ncbi.get("status", "")).lower()
+                or "timeout" in str(ncbi.get("status", "")).lower()
+            ):
+                ncbi_val = (
+                    "FAILED (Timeout)"
+                    if "timeout" in str(ncbi.get("error", "")).lower()
+                    or "timed out" in str(ncbi.get("status", "")).lower()
+                    else "FAILED"
+                )
+
             self.all_results_matrix.append(
                 [
                     str(meta.get("sample_id", "")),
                     str(meta.get("field_morpho_code", "")),
                     str(meta.get("field_inferred_genus", "")),
-                    str(bold.get("top_species") or bold.get("top_genus") or ""),
+                    bold_val,
                     f"{bold_pct:.1f}" if bold_pct else "",
-                    str(ncbi.get("top_species") or ncbi.get("top_genus") or ""),
+                    ncbi_val,
                     f"{ncbi_pct:.1f}" if ncbi_pct else "",
                     str(gbif.get("canonicalName", "")),
                     str(r.get("consensus_species") or r.get("consensus_genus") or ""),
@@ -2338,6 +2380,7 @@ class BarcoIDApp:
         self.summary_counts = counts
         self.summary_total = len(rows)
         self._update_summary_cards(len(rows), counts)
+        self._update_rerun_button_state()
 
         self.results_col_widths = self._default_results_col_widths()
         for idx, col_name in enumerate(RESULTS_COLUMNS):
@@ -2636,6 +2679,742 @@ class BarcoIDApp:
         self._update_summary_cards(len(self.preliminary_rows), counts)
         self.show_step(3)
 
+    def _is_row_failed(self, row: Dict[str, Any]) -> bool:
+        """Determines if a specimen had an external API timeout, network error, or failure."""
+        b = row.get("bold", {})
+        n = row.get("ncbi", {})
+        if (
+            b.get("failed")
+            or "timeout" in str(b.get("status", "")).lower()
+            or "failed" in str(b.get("status", "")).lower()
+        ):
+            return True
+        if (
+            n.get("failed")
+            or "timed out" in str(n.get("status", "")).lower()
+            or "timeout" in str(n.get("status", "")).lower()
+            or "failed" in str(n.get("status", "")).lower()
+            or "unavailable" in str(n.get("status", "")).lower()
+        ):
+            return True
+        b_tax = str(b.get("top_species") or b.get("top_genus") or "")
+        if b_tax.upper().startswith("FAILED"):
+            return True
+        n_tax = str(n.get("top_species") or n.get("top_genus") or "")
+        if n_tax.upper().startswith("FAILED"):
+            return True
+        return False
+
+    def _update_rerun_button_state(self):
+        """Updates the Re-run Failed button label and enabled/disabled state."""
+        if not hasattr(self, "rerun_failed_btn"):
+            return
+        failed_count = sum(
+            1 for r in getattr(self, "last_results_rows", []) if self._is_row_failed(r)
+        )
+        if failed_count > 0:
+            self.rerun_failed_btn.configure(
+                state="normal",
+                text=f"Re-run Failed ({failed_count})",
+                bg="#D97706",
+                fg="#FFFFFF",
+            )
+        else:
+            self.rerun_failed_btn.configure(
+                state="disabled",
+                text="Re-run Failed (0)",
+                bg=PALETTE["card_inner"],
+                fg="#888888",
+            )
+
+    def _on_rerun_failed_clicked(self):
+        """Launches identification targeting ONLY the failed/timed out sequences."""
+        if getattr(self, "is_running", False):
+            messagebox.showwarning("Run in Progress", "An identification run is already executing.")
+            return
+
+        failed_rows = [r for r in getattr(self, "last_results_rows", []) if self._is_row_failed(r)]
+        if not failed_rows:
+            messagebox.showinfo("No Failed Sequences", "There are no failed sequences to re-run.")
+            return
+
+        # Extract sequence strings from row metadata or from original FASTA file
+        subset_seqs: List[Tuple[str, str]] = []
+        for r in failed_rows:
+            hdr = (
+                r.get("meta", {}).get("full_header")
+                or r.get("meta", {}).get("clean_id")
+                or r.get("meta", {}).get("sample_id")
+                or "seq"
+            )
+            seq = r.get("meta", {}).get("sequence", "")
+            if seq:
+                subset_seqs.append((hdr, seq))
+
+        # Fallback: if sequences were not cached directly in meta, match headers from input FASTA
+        if len(subset_seqs) < len(failed_rows) and self.fasta_var.get().strip():
+            fpath = Path(self.fasta_var.get().strip())
+            if fpath.exists():
+                from barcoid.parsers.fasta import FastaParser
+
+                all_seqs = FastaParser.read_fasta(fpath)
+                failed_ids = {r.get("meta", {}).get("sample_id", "") for r in failed_rows}
+                failed_ids.update({r.get("meta", {}).get("clean_id", "") for r in failed_rows})
+                failed_ids.update({r.get("meta", {}).get("full_header", "") for r in failed_rows})
+                subset_seqs = []
+                for h, s in all_seqs:
+                    clean_h = h.lstrip(">").split(";")[0]
+                    if (
+                        h in failed_ids
+                        or clean_h in failed_ids
+                        or any(fid and fid in h for fid in failed_ids)
+                    ):
+                        subset_seqs.append((h, s))
+
+        if not subset_seqs:
+            messagebox.showerror(
+                "Error",
+                "Could not retrieve nucleotide sequences for the failed records.",
+            )
+            return
+
+        fasta_orig = (
+            Path(self.fasta_var.get().strip())
+            if self.fasta_var.get().strip()
+            else Path("barcodes.fasta")
+        )
+        base_dir = default_portable_base_dir(fasta_orig)
+        out_dir = (
+            Path(self.output_dir_var.get().strip())
+            if self.output_dir_var.get().strip()
+            else base_dir / "results"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        rerun_fasta = out_dir / f"{fasta_orig.stem}_failed_subset.fasta"
+        with open(rerun_fasta, "w", encoding="utf-8") as f:
+            for h, s in subset_seqs:
+                clean_h = h.lstrip(">")
+                f.write(f">{clean_h}\n{s}\n")
+
+        self.is_rerun_execution = True
+        self.rerun_original_rows = list(self.last_results_rows)
+        self.rerun_fasta_path = rerun_fasta
+
+        meta_path = (
+            Path(self.metadata_var.get().strip()) if self.metadata_var.get().strip() else None
+        )
+        sample_col = self.sample_col_var.get()
+        morpho_col = self.morpho_col_var.get()
+
+        config = build_config_from_inputs(
+            fasta_path=rerun_fasta,
+            output_dir=out_dir,
+            taxon=self.taxon_var.get(),
+            max_sequences_str="",
+            ncbi_email=self.ncbi_email_var.get(),
+            ncbi_api_key=self.ncbi_key_var.get(),
+            dry_run=False,
+            force_refresh=False,
+            skip_ncbi=self.skip_ncbi_var.get(),
+            enable_preliminary_results=False,
+        )
+
+        self.is_running = True
+        self.stage_var.set(f"Re-running {len(subset_seqs)} failed sequence(s)...")
+        self.pct_var.set("0%")
+        self.speed_var.set("")
+        self.eta_var.set("")
+        self.progress_bar["value"] = 0
+        self.run_btn.configure(
+            state="disabled",
+            text="Re-running Failed...",
+            bg=PALETTE["border"],
+            fg=PALETTE["text_dark"],
+        )
+        self.show_step(2)
+
+        worker = threading.Thread(
+            target=self._run_pipeline_worker,
+            args=(config, rerun_fasta, meta_path, sample_col, morpho_col),
+            daemon=True,
+        )
+        worker.start()
+
+    def _show_rerun_decision_dialog(
+        self, rerun_rows: List[Dict[str, Any]], original_rows: List[Dict[str, Any]]
+    ):
+        """Modal dialog allowing the user to combine re-run findings or save as a separate run."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Re-run Completed — Choose Output Mode")
+        w_px = max(560, int(560 * self.dpi_scale))
+        h_px = max(260, int(260 * self.dpi_scale))
+        dialog.geometry(f"{w_px}x{h_px}")
+        dialog.configure(bg=PALETTE["card_inner"])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        try:
+            x = self.root.winfo_x() + (self.root.winfo_width() - w_px) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - h_px) // 2
+            dialog.geometry(f"+{max(10, x)}+{max(10, y)}")
+        except Exception:
+            pass
+
+        tk.Label(
+            dialog,
+            text="Re-run Identification Completed",
+            font=FONT_TITLE,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+        ).pack(pady=(18, 8), padx=20, anchor="w")
+
+        still_failed = sum(1 for r in rerun_rows if self._is_row_failed(r))
+        resolved = len(rerun_rows) - still_failed
+        msg = (
+            f"Successfully re-processed {len(rerun_rows)} sequence(s) ({resolved} resolved"
+            + (f", {still_failed} still pending" if still_failed > 0 else "")
+            + ").\n\nHow would you like to handle the results?"
+        )
+        tk.Label(
+            dialog,
+            text=msg,
+            font=FONT_BODY,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+            justify="left",
+            wraplength=w_px - 40,
+        ).pack(pady=(0, 16), padx=20, anchor="w")
+
+        btn_frame = tk.Frame(dialog, bg=PALETTE["card_inner"])
+        btn_frame.pack(fill="x", padx=20, pady=(10, 0))
+
+        def _on_combine():
+            dialog.destroy()
+            self._combine_and_overwrite_results(rerun_rows, original_rows)
+
+        def _on_save_new():
+            dialog.destroy()
+            self._save_as_separate_rerun(rerun_rows)
+
+        self._make_button(
+            btn_frame, "Combine & Overwrite Original", _on_combine, primary=True
+        ).pack(side="left", padx=(0, 10))
+
+        self._make_button(btn_frame, "Save as New (_rerun)", _on_save_new, primary=False).pack(
+            side="left", padx=(0, 10)
+        )
+
+        self._make_button(btn_frame, "Close", dialog.destroy, primary=False).pack(side="right")
+
+    def _combine_and_overwrite_results(
+        self, rerun_rows: List[Dict[str, Any]], original_rows: List[Dict[str, Any]]
+    ):
+        """Merges re-run findings into master dataset, re-exports files, and updates UI."""
+        rerun_map: Dict[str, Dict[str, Any]] = {}
+        for r in rerun_rows:
+            m = r.get("meta", {})
+            for key in (m.get("sample_id"), m.get("clean_id"), m.get("full_header")):
+                if key:
+                    rerun_map[key] = r
+
+        merged_rows = list(original_rows)
+        replaced_count = 0
+        for idx, orig_r in enumerate(merged_rows):
+            om = orig_r.get("meta", {})
+            match_row = (
+                rerun_map.get(om.get("sample_id"))
+                or rerun_map.get(om.get("clean_id"))
+                or rerun_map.get(om.get("full_header"))
+            )
+            if match_row:
+                merged_rows[idx] = match_row
+                replaced_count += 1
+
+        fasta_orig = (
+            Path(self.fasta_var.get().strip())
+            if self.fasta_var.get().strip()
+            else Path("barcodes.fasta")
+        )
+        base_dir = default_portable_base_dir(fasta_orig)
+        out_dir = (
+            Path(self.output_dir_var.get().strip())
+            if self.output_dir_var.get().strip()
+            else base_dir / "results"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stem = fasta_orig.stem
+
+        xlsx_path = out_dir / f"{stem}_multi_source_identification.xlsx"
+        tsv_path = out_dir / f"{stem}_identification.tsv"
+        report_path = out_dir / f"{stem}_qc_report.md"
+
+        from barcoid.exporters.excel import ExcelExporter
+        from barcoid.exporters.report import ReportExporter
+        from barcoid.exporters.tabular import TabularExporter
+
+        ExcelExporter.export(merged_rows, xlsx_path)
+        TabularExporter.export(merged_rows, tsv_path)
+        ReportExporter.export(merged_rows, report_path)
+
+        counts = {
+            "CONCORDANT": 0,
+            "NEW_ASSIGNMENT": 0,
+            "MISMATCH_ALERT": 0,
+            "NO_MATCH": 0,
+        }
+        for r in merged_rows:
+            st = r.get("concordance_status", "")
+            if st in counts:
+                counts[st] += 1
+
+        self.last_results_rows = list(merged_rows)
+        self.last_excel_path = xlsx_path
+        self._update_summary_cards(len(merged_rows), counts)
+        self.populate_results_table(merged_rows)
+        self.open_excel_btn.configure(
+            bg=PALETTE["primary"],
+            fg="#FFFFFF",
+            text="Open Excel Report (Updated)",
+        )
+        self.show_step(3)
+        messagebox.showinfo(
+            "Results Combined",
+            f"Successfully updated {replaced_count} sequence(s) in the master results and re-exported files:\n{xlsx_path.name}",
+        )
+
+    def _save_as_separate_rerun(self, rerun_rows: List[Dict[str, Any]]):
+        """Saves re-run findings to independent '_rerun' files and previews them."""
+        fasta_orig = (
+            Path(self.fasta_var.get().strip())
+            if self.fasta_var.get().strip()
+            else Path("barcodes.fasta")
+        )
+        base_dir = default_portable_base_dir(fasta_orig)
+        out_dir = (
+            Path(self.output_dir_var.get().strip())
+            if self.output_dir_var.get().strip()
+            else base_dir / "results"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stem = fasta_orig.stem
+
+        rerun_xlsx = out_dir / f"{stem}_rerun_multi_source_identification.xlsx"
+        rerun_tsv = out_dir / f"{stem}_rerun_identification.tsv"
+        rerun_report = out_dir / f"{stem}_rerun_qc_report.md"
+
+        from barcoid.exporters.excel import ExcelExporter
+        from barcoid.exporters.report import ReportExporter
+        from barcoid.exporters.tabular import TabularExporter
+
+        ExcelExporter.export(rerun_rows, rerun_xlsx)
+        TabularExporter.export(rerun_rows, rerun_tsv)
+        ReportExporter.export(rerun_rows, rerun_report)
+
+        counts = {
+            "CONCORDANT": 0,
+            "NEW_ASSIGNMENT": 0,
+            "MISMATCH_ALERT": 0,
+            "NO_MATCH": 0,
+        }
+        for r in rerun_rows:
+            st = r.get("concordance_status", "")
+            if st in counts:
+                counts[st] += 1
+
+        self.last_results_rows = list(rerun_rows)
+        self.last_excel_path = rerun_xlsx
+        self._update_summary_cards(len(rerun_rows), counts)
+        self.populate_results_table(rerun_rows)
+        self.open_excel_btn.configure(
+            bg=PALETTE["primary"],
+            fg="#FFFFFF",
+            text="Open Rerun Excel Report",
+        )
+        self.show_step(3)
+        messagebox.showinfo(
+            "Saved as New Run",
+            f"Saved {len(rerun_rows)} re-run results to:\n{rerun_xlsx.name}",
+        )
+
+    def _is_row_failed(self, row: Dict[str, Any]) -> bool:
+        """Determines if a specimen had an external API timeout, network error, or failure."""
+        b = row.get("bold", {})
+        n = row.get("ncbi", {})
+        if (
+            b.get("failed")
+            or "timeout" in str(b.get("status", "")).lower()
+            or "failed" in str(b.get("status", "")).lower()
+        ):
+            return True
+        if (
+            n.get("failed")
+            or "timed out" in str(n.get("status", "")).lower()
+            or "timeout" in str(n.get("status", "")).lower()
+            or "failed" in str(n.get("status", "")).lower()
+            or "unavailable" in str(n.get("status", "")).lower()
+        ):
+            return True
+        b_tax = str(b.get("top_species") or b.get("top_genus") or "")
+        if b_tax.upper().startswith("FAILED"):
+            return True
+        n_tax = str(n.get("top_species") or n.get("top_genus") or "")
+        if n_tax.upper().startswith("FAILED"):
+            return True
+        return False
+
+    def _update_rerun_button_state(self):
+        """Updates the Re-run Failed button label and enabled/disabled state."""
+        if not hasattr(self, "rerun_failed_btn"):
+            return
+        failed_count = sum(
+            1 for r in getattr(self, "last_results_rows", []) if self._is_row_failed(r)
+        )
+        if failed_count > 0:
+            self.rerun_failed_btn.configure(
+                state="normal",
+                text=f"Re-run Failed ({failed_count})",
+                bg="#D97706",
+                fg="#FFFFFF",
+            )
+        else:
+            self.rerun_failed_btn.configure(
+                state="disabled",
+                text="Re-run Failed (0)",
+                bg=PALETTE["card_inner"],
+                fg="#888888",
+            )
+
+    def _on_rerun_failed_clicked(self):
+        """Launches identification targeting ONLY the failed/timed out sequences."""
+        if getattr(self, "is_running", False):
+            messagebox.showwarning(
+                "Run in Progress", "An identification run is already executing."
+            )
+            return
+
+        failed_rows = [
+            r for r in getattr(self, "last_results_rows", []) if self._is_row_failed(r)
+        ]
+        if not failed_rows:
+            messagebox.showinfo(
+                "No Failed Sequences", "There are no failed sequences to re-run."
+            )
+            return
+
+        # Extract sequence strings from row metadata or from original FASTA file
+        subset_seqs: List[Tuple[str, str]] = []
+        for r in failed_rows:
+            hdr = (
+                r.get("meta", {}).get("full_header")
+                or r.get("meta", {}).get("clean_id")
+                or r.get("meta", {}).get("sample_id")
+                or "seq"
+            )
+            seq = r.get("meta", {}).get("sequence", "")
+            if seq:
+                subset_seqs.append((hdr, seq))
+
+        # Fallback: if sequences were not cached directly in meta, match headers from input FASTA
+        if len(subset_seqs) < len(failed_rows) and self.fasta_var.get().strip():
+            fpath = Path(self.fasta_var.get().strip())
+            if fpath.exists():
+                from barcoid.parsers.fasta import FastaParser
+
+                all_seqs = FastaParser.read_fasta(fpath)
+                failed_ids = {
+                    r.get("meta", {}).get("sample_id", "") for r in failed_rows
+                }
+                failed_ids.update(
+                    {r.get("meta", {}).get("clean_id", "") for r in failed_rows}
+                )
+                failed_ids.update(
+                    {r.get("meta", {}).get("full_header", "") for r in failed_rows}
+                )
+                subset_seqs = []
+                for h, s in all_seqs:
+                    clean_h = h.lstrip(">").split(";")[0]
+                    if (
+                        h in failed_ids
+                        or clean_h in failed_ids
+                        or any(fid and fid in h for fid in failed_ids)
+                    ):
+                        subset_seqs.append((h, s))
+
+        if not subset_seqs:
+            messagebox.showerror(
+                "Error",
+                "Could not retrieve nucleotide sequences for the failed records.",
+            )
+            return
+
+        fasta_orig = (
+            Path(self.fasta_var.get().strip())
+            if self.fasta_var.get().strip()
+            else Path("barcodes.fasta")
+        )
+        base_dir = default_portable_base_dir(fasta_orig)
+        out_dir = (
+            Path(self.output_dir_var.get().strip())
+            if self.output_dir_var.get().strip()
+            else base_dir / "results"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        rerun_fasta = out_dir / f"{fasta_orig.stem}_failed_subset.fasta"
+        with open(rerun_fasta, "w", encoding="utf-8") as f:
+            for h, s in subset_seqs:
+                clean_h = h.lstrip(">")
+                f.write(f">{clean_h}\n{s}\n")
+
+        self.is_rerun_execution = True
+        self.rerun_original_rows = list(self.last_results_rows)
+        self.rerun_fasta_path = rerun_fasta
+
+        meta_path = (
+            Path(self.metadata_var.get().strip())
+            if self.metadata_var.get().strip()
+            else None
+        )
+        sample_col = self.sample_col_var.get()
+        morpho_col = self.morpho_col_var.get()
+
+        config = build_config_from_inputs(
+            fasta_path=rerun_fasta,
+            output_dir=out_dir,
+            taxon=self.taxon_var.get(),
+            max_sequences_str="",
+            ncbi_email=self.ncbi_email_var.get(),
+            ncbi_api_key=self.ncbi_key_var.get(),
+            dry_run=False,
+            force_refresh=False,
+            skip_ncbi=self.skip_ncbi_var.get(),
+            enable_preliminary_results=False,
+        )
+
+        self.is_running = True
+        self.stage_var.set(f"Re-running {len(subset_seqs)} failed sequence(s)...")
+        self.pct_var.set("0%")
+        self.speed_var.set("")
+        self.eta_var.set("")
+        self.progress_bar["value"] = 0
+        self.run_btn.configure(
+            state="disabled",
+            text="Re-running Failed...",
+            bg=PALETTE["border"],
+            fg=PALETTE["text_dark"],
+        )
+        self.show_step(2)
+
+        worker = threading.Thread(
+            target=self._run_pipeline_worker,
+            args=(config, rerun_fasta, meta_path, sample_col, morpho_col),
+            daemon=True,
+        )
+        worker.start()
+
+    def _show_rerun_decision_dialog(
+        self, rerun_rows: List[Dict[str, Any]], original_rows: List[Dict[str, Any]]
+    ):
+        """Modal dialog allowing the user to combine re-run findings or save as a separate run."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Re-run Completed — Choose Output Mode")
+        w_px = max(560, int(560 * self.dpi_scale))
+        h_px = max(260, int(260 * self.dpi_scale))
+        dialog.geometry(f"{w_px}x{h_px}")
+        dialog.configure(bg=PALETTE["card_inner"])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        try:
+            x = (
+                self.root.winfo_x()
+                + (self.root.winfo_width() - w_px) // 2
+            )
+            y = (
+                self.root.winfo_y()
+                + (self.root.winfo_height() - h_px) // 2
+            )
+            dialog.geometry(f"+{max(10, x)}+{max(10, y)}")
+        except Exception:
+            pass
+
+        tk.Label(
+            dialog,
+            text="Re-run Identification Completed",
+            font=FONT_TITLE,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+        ).pack(pady=(18, 8), padx=20, anchor="w")
+
+        still_failed = sum(1 for r in rerun_rows if self._is_row_failed(r))
+        resolved = len(rerun_rows) - still_failed
+        msg = (
+            f"Successfully re-processed {len(rerun_rows)} sequence(s) ({resolved} resolved"
+            + (f", {still_failed} still pending" if still_failed > 0 else "")
+            + ").\n\nHow would you like to handle the results?"
+        )
+        tk.Label(
+            dialog,
+            text=msg,
+            font=FONT_BODY,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["card_inner"],
+            justify="left",
+            wraplength=w_px - 40,
+        ).pack(pady=(0, 16), padx=20, anchor="w")
+
+        btn_frame = tk.Frame(dialog, bg=PALETTE["card_inner"])
+        btn_frame.pack(fill="x", padx=20, pady=(10, 0))
+
+        def _on_combine():
+            dialog.destroy()
+            self._combine_and_overwrite_results(rerun_rows, original_rows)
+
+        def _on_save_new():
+            dialog.destroy()
+            self._save_as_separate_rerun(rerun_rows)
+
+        self._make_button(
+            btn_frame, "Combine & Overwrite Original", _on_combine, primary=True
+        ).pack(side="left", padx=(0, 10))
+
+        self._make_button(
+            btn_frame, "Save as New (_rerun)", _on_save_new, primary=False
+        ).pack(side="left", padx=(0, 10))
+
+        self._make_button(
+            btn_frame, "Close", dialog.destroy, primary=False
+        ).pack(side="right")
+
+    def _combine_and_overwrite_results(
+        self, rerun_rows: List[Dict[str, Any]], original_rows: List[Dict[str, Any]]
+    ):
+        """Merges re-run findings into master dataset, re-exports files, and updates UI."""
+        rerun_map: Dict[str, Dict[str, Any]] = {}
+        for r in rerun_rows:
+            m = r.get("meta", {})
+            for key in (m.get("sample_id"), m.get("clean_id"), m.get("full_header")):
+                if key:
+                    rerun_map[key] = r
+
+        merged_rows = list(original_rows)
+        replaced_count = 0
+        for idx, orig_r in enumerate(merged_rows):
+            om = orig_r.get("meta", {})
+            match_row = (
+                rerun_map.get(om.get("sample_id"))
+                or rerun_map.get(om.get("clean_id"))
+                or rerun_map.get(om.get("full_header"))
+            )
+            if match_row:
+                merged_rows[idx] = match_row
+                replaced_count += 1
+
+        fasta_orig = (
+            Path(self.fasta_var.get().strip())
+            if self.fasta_var.get().strip()
+            else Path("barcodes.fasta")
+        )
+        base_dir = default_portable_base_dir(fasta_orig)
+        out_dir = (
+            Path(self.output_dir_var.get().strip())
+            if self.output_dir_var.get().strip()
+            else base_dir / "results"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stem = fasta_orig.stem
+
+        xlsx_path = out_dir / f"{stem}_multi_source_identification.xlsx"
+        tsv_path = out_dir / f"{stem}_identification.tsv"
+        report_path = out_dir / f"{stem}_qc_report.md"
+
+        from barcoid.exporters.excel import ExcelExporter
+        from barcoid.exporters.report import ReportExporter
+        from barcoid.exporters.tabular import TabularExporter
+
+        ExcelExporter.export(merged_rows, xlsx_path)
+        TabularExporter.export(merged_rows, tsv_path)
+        ReportExporter.export(merged_rows, report_path)
+
+        counts = {
+            "CONCORDANT": 0,
+            "NEW_ASSIGNMENT": 0,
+            "MISMATCH_ALERT": 0,
+            "NO_MATCH": 0,
+        }
+        for r in merged_rows:
+            st = r.get("concordance_status", "")
+            if st in counts:
+                counts[st] += 1
+
+        self.last_results_rows = list(merged_rows)
+        self.last_excel_path = xlsx_path
+        self._update_summary_cards(len(merged_rows), counts)
+        self.populate_results_table(merged_rows)
+        self.open_excel_btn.configure(
+            bg=PALETTE["primary"],
+            fg="#FFFFFF",
+            text="Open Excel Report (Updated)",
+        )
+        self.show_step(3)
+        messagebox.showinfo(
+            "Results Combined",
+            f"Successfully updated {replaced_count} sequence(s) in the master results and re-exported files:\n{xlsx_path.name}",
+        )
+
+    def _save_as_separate_rerun(self, rerun_rows: List[Dict[str, Any]]):
+        """Saves re-run findings to independent '_rerun' files and previews them."""
+        fasta_orig = (
+            Path(self.fasta_var.get().strip())
+            if self.fasta_var.get().strip()
+            else Path("barcodes.fasta")
+        )
+        base_dir = default_portable_base_dir(fasta_orig)
+        out_dir = (
+            Path(self.output_dir_var.get().strip())
+            if self.output_dir_var.get().strip()
+            else base_dir / "results"
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stem = fasta_orig.stem
+
+        rerun_xlsx = out_dir / f"{stem}_rerun_multi_source_identification.xlsx"
+        rerun_tsv = out_dir / f"{stem}_rerun_identification.tsv"
+        rerun_report = out_dir / f"{stem}_rerun_qc_report.md"
+
+        from barcoid.exporters.excel import ExcelExporter
+        from barcoid.exporters.report import ReportExporter
+        from barcoid.exporters.tabular import TabularExporter
+
+        ExcelExporter.export(rerun_rows, rerun_xlsx)
+        TabularExporter.export(rerun_rows, rerun_tsv)
+        ReportExporter.export(rerun_rows, rerun_report)
+
+        counts = {
+            "CONCORDANT": 0,
+            "NEW_ASSIGNMENT": 0,
+            "MISMATCH_ALERT": 0,
+            "NO_MATCH": 0,
+        }
+        for r in rerun_rows:
+            st = r.get("concordance_status", "")
+            if st in counts:
+                counts[st] += 1
+
+        self.last_results_rows = list(rerun_rows)
+        self.last_excel_path = rerun_xlsx
+        self._update_summary_cards(len(rerun_rows), counts)
+        self.populate_results_table(rerun_rows)
+        self.open_excel_btn.configure(
+            bg=PALETTE["primary"],
+            fg="#FFFFFF",
+            text="Open Rerun Excel Report",
+        )
+        self.show_step(3)
+        messagebox.showinfo(
+            "Saved as New Run",
+            f"Saved {len(rerun_rows)} re-run results to:\n{rerun_xlsx.name}",
+        )
+
     @staticmethod
     def _format_duration(seconds: float) -> str:
         """Formats seconds into MM:SS or HH:MM:SS."""
@@ -2705,13 +3484,13 @@ class BarcoIDApp:
         self.open_terminal_window()
 
     def open_guide_window(self):
-        """Opens a clean, step-by-step user guide dialog with screenshots and clear workflow instructions."""
+        """Opens a clean user guide dialog with screenshots, workflow instructions, and section links."""
         if self.guide_win and self.guide_win.winfo_exists():
             self.guide_win.lift()
             return
 
         win = tk.Toplevel(self.root)
-        win.title("BarcoID — Step-by-Step User Guide")
+        win.title("BarcoID — User Guide and App info")
         win.geometry("1040x840")
         win.minsize(860, 560)
         win.configure(bg=PALETTE["bg_canvas"])
@@ -2733,11 +3512,11 @@ class BarcoIDApp:
             padx=20,
             pady=12,
         )
-        banner.pack(fill="x", padx=16, pady=14)
+        banner.pack(fill="x", padx=16, pady=(14, 8))
 
         tk.Label(
             banner,
-            text="BarcoID Step-by-Step Guide",
+            text="BarcoID User Guide & App Info",
             font=FONT_TITLE,
             fg=PALETTE["text_dark"],
             bg=PALETTE["primary_tint"],
@@ -2745,11 +3524,23 @@ class BarcoIDApp:
 
         tk.Label(
             banner,
-            text="Quick 4-step workflow overview with visual guides",
+            text="Workflow documentation, technical specs & data privacy",
             font=FONT_BODY,
             fg=PALETTE["text_dark"],
             bg=PALETTE["primary_tint"],
         ).pack(side="right")
+
+        # Quick Section Navigation Links
+        nav_bar = tk.Frame(win, bg=PALETTE["bg_canvas"])
+        nav_bar.pack(fill="x", padx=16, pady=(0, 10))
+
+        tk.Label(
+            nav_bar,
+            text="Jump to section:",
+            font=FONT_HEADING,
+            fg=PALETTE["text_dark"],
+            bg=PALETTE["bg_canvas"],
+        ).pack(side="left", padx=(0, 8))
 
         # Scrollable container for steps
         container = tk.Frame(win, bg=PALETTE["bg_canvas"])
@@ -2770,6 +3561,45 @@ class BarcoIDApp:
 
         scrollable_frame.bind("<Configure>", _on_frame_configure)
         canvas.bind("<Configure>", _on_canvas_configure)
+
+        step_card_widgets: List[tk.Frame] = []
+
+        def _make_jump_fn(idx):
+            def _jump():
+                if idx < len(step_card_widgets):
+                    win.update_idletasks()
+                    card = step_card_widgets[idx]
+                    total_h = scrollable_frame.winfo_height()
+                    if total_h > 0:
+                        y = card.winfo_y()
+                        canvas.yview_moveto(max(0.0, min(1.0, y / total_h)))
+
+            return _jump
+
+        nav_items = [
+            ("1. Sequences", 0),
+            ("2. Metadata", 1),
+            ("3. Multi-Source Run", 2),
+            ("4. Results & Filters", 3),
+            ("Data Privacy & Security", 4),
+        ]
+        for lbl, s_idx in nav_items:
+            b = tk.Button(
+                nav_bar,
+                text=lbl,
+                font=FONT_SMALL,
+                command=_make_jump_fn(s_idx),
+                bg=PALETTE["primary_tint"],
+                fg=PALETTE["text_dark"],
+                activebackground=PALETTE["primary"],
+                activeforeground="#FFFFFF",
+                relief="flat",
+                bd=0,
+                cursor="hand2",
+                padx=8,
+                pady=4,
+            )
+            b.pack(side="left", padx=(0, 6))
 
         # Smooth mouse wheel scrolling across canvas and all child widgets
         def _on_guide_mousewheel(event):
@@ -2870,6 +3700,7 @@ class BarcoIDApp:
                 pady=14,
             )
             card.pack(fill="x", pady=(0, 16))
+            step_card_widgets.append(card)
 
             tk.Label(
                 card,
@@ -3477,6 +4308,12 @@ class BarcoIDApp:
                     fg="#FFFFFF",
                 )
                 self._set_service_states(morpho="Done", bold="Done", ncbi="Done", gbif="Done")
+
+                if getattr(self, "is_rerun_execution", False):
+                    self.is_rerun_execution = False
+                    orig_rows = getattr(self, "rerun_original_rows", [])
+                    self._show_rerun_decision_dialog(rows, orig_rows)
+                    return
 
                 counts = {
                     "CONCORDANT": 0,

@@ -74,6 +74,13 @@ class RemoteBlastEngine:
             chunk_fasta = "".join(fasta_lines)
             batch_num = (b_idx // batch_size) + 1
             total_batches = (total_pending + batch_size - 1) // batch_size
+
+            # Pacing delay between consecutive QBLAST submissions to avoid congestion
+            if b_idx > 0 and self.config.ncbi_delay_between_batches > 0:
+                delay = self.config.ncbi_delay_between_batches
+                logger.info(f"Pacing pause ({delay:.1f}s) before next NCBI QBLAST submission...")
+                time.sleep(delay)
+
             logger.info(
                 f"  [Batch {batch_num}/{total_batches}] Querying NCBI for {len(chunk)} sequence(s)..."
             )
@@ -109,9 +116,11 @@ class RemoteBlastEngine:
                         if orig_hdr not in results:
                             err_res = self._empty_result()
                             err_res["status"] = "NCBI query timed out or unavailable"
+                            err_res["failed"] = True
+                            err_res["error"] = "Timeout"
                             results[orig_hdr] = err_res
                     # Cool-down pause to allow remote NCBI queue to recover
-                    time.sleep(5.0)
+                    time.sleep(12.0)
 
             except Exception as e:
                 logger.error(f"NCBI QBLAST batch {batch_num} failed: {e}")
@@ -119,9 +128,11 @@ class RemoteBlastEngine:
                     if orig_hdr not in results:
                         err_res = self._empty_result()
                         err_res["status"] = f"NCBI batch failed: {e}"
+                        err_res["failed"] = True
+                        err_res["error"] = str(e)
                         results[orig_hdr] = err_res
                 # Cool-down pause to allow remote NCBI queue to recover
-                time.sleep(5.0)
+                time.sleep(12.0)
 
         return results
 
@@ -178,9 +189,10 @@ class RemoteBlastEngine:
 
         rid = m_rid.group(1)
         rtoe = int(m_rtoe.group(1)) if m_rtoe else 15
-        time.sleep(min(max(rtoe, 8), 25))
+        time.sleep(min(max(rtoe, 12), 30))
 
         elapsed = 0
+        poll_interval = max(8, self.config.ncbi_poll_interval)
         while elapsed < self.config.ncbi_timeout:
             poll_params = {"CMD": "Get", "FORMAT_OBJECT": "SearchInfo", "RID": rid}
             if self.config.ncbi_api_key:
@@ -188,8 +200,8 @@ class RemoteBlastEngine:
 
             r_check = requests.get(url, params=poll_params, timeout=30)
             if "Status=WAITING" in r_check.text:
-                time.sleep(self.config.ncbi_poll_interval)
-                elapsed += self.config.ncbi_poll_interval
+                time.sleep(poll_interval)
+                elapsed += poll_interval
                 continue
             elif "Status=FAILED" in r_check.text:
                 logger.warning(f"NCBI Search RID {rid} reported FAILED.")

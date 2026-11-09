@@ -102,9 +102,10 @@ class BarcoIDPipeline:
         # Pre-parse headers & metadata so morphological priors are ready immediately
         parsed_by_hdr: Dict[str, Dict[str, Any]] = {}
         initial_gbif_names: List[str] = []
-        for hdr, _ in sequences:
+        for hdr, seq in sequences:
             p_meta = self.header_parser.parse_header(hdr)
             p_meta.update(self.ont_parser.parse_stats(hdr))
+            p_meta["sequence"] = seq
             if meta_parser:
                 ext_meta = (
                     meta_parser.get_metadata(p_meta.get("sample_id", ""))

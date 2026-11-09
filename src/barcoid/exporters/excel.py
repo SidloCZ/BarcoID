@@ -38,11 +38,13 @@ class ExcelExporter:
         font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         font_white_bold = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         font_dark_bold = Font(name="Calibri", size=11, bold=True, color="111111")
+        font_warning = Font(name="Calibri", size=11, bold=True, color="7A5200")
         fill_header = PatternFill(start_color="4C9E45", end_color="4C9E45", fill_type="solid")
         fill_qc_header = PatternFill(start_color="111111", end_color="111111", fill_type="solid")
         fill_green = PatternFill(start_color="4C9E45", end_color="4C9E45", fill_type="solid")
         fill_green_tint = PatternFill(start_color="EAF4E9", end_color="EAF4E9", fill_type="solid")
         fill_alert = PatternFill(start_color="FDECEC", end_color="FDECEC", fill_type="solid")
+        fill_warning = PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid")
         align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
         align_left = Alignment(horizontal="left", vertical="center")
         border_thin = Border(
@@ -125,6 +127,33 @@ class ExcelExporter:
             ncbi = r.get("ncbi", {})
             gbif = r.get("gbif", {})
 
+            bold_val = bold.get("top_species") or bold.get("top_genus") or ""
+            if not bold_val and (
+                bold.get("failed")
+                or "failed" in str(bold.get("status", "")).lower()
+                or "timeout" in str(bold.get("status", "")).lower()
+            ):
+                bold_val = (
+                    "FAILED (Timeout)"
+                    if "timeout" in str(bold.get("error", "")).lower()
+                    or "timeout" in str(bold.get("status", "")).lower()
+                    else "FAILED"
+                )
+
+            ncbi_val = ncbi.get("top_species") or ncbi.get("top_genus") or ""
+            if not ncbi_val and (
+                ncbi.get("failed")
+                or "failed" in str(ncbi.get("status", "")).lower()
+                or "timed out" in str(ncbi.get("status", "")).lower()
+                or "timeout" in str(ncbi.get("status", "")).lower()
+            ):
+                ncbi_val = (
+                    "FAILED (Timeout)"
+                    if "timeout" in str(ncbi.get("error", "")).lower()
+                    or "timed out" in str(ncbi.get("status", "")).lower()
+                    else "FAILED"
+                )
+
             comp_row = [
                 meta.get("sample_id", ""),
                 meta.get("plate", ""),
@@ -135,12 +164,12 @@ class ExcelExporter:
                 meta.get("field_morpho_code", ""),
                 meta.get("field_inferred_genus", ""),
                 meta.get("voucher_code", ""),
-                bold.get("top_species") or bold.get("top_genus") or "",
+                bold_val,
                 bold.get("top_genus", ""),
                 bold.get("top_pct_identity", 0.0),
                 bold.get("top_bin", ""),
                 bold.get("top_process_id", ""),
-                ncbi.get("top_species") or ncbi.get("top_genus") or "",
+                ncbi_val,
                 ncbi.get("top_genus", ""),
                 ncbi.get("top_pct_identity", 0.0),
                 ncbi.get("top_accession", ""),
@@ -214,16 +243,20 @@ class ExcelExporter:
                     val_str = str(cell.value or "")
                     if cell.row > 1 and cell.column not in (3, 4, 5, 12, 17, 22):
                         cell.alignment = align_left
-                    if cell.row > 1 and ws in (ws_comp, ws_qc) and cell.column in (27, 28):
-                        if val_str in ("CONCORDANT", "OK"):
-                            cell.fill = fill_green
-                            cell.font = font_white_bold
-                        elif val_str == "NEW_ASSIGNMENT":
-                            cell.fill = fill_green_tint
-                            cell.font = font_dark_bold
-                        elif val_str and val_str != "NO_MATCH":
-                            cell.fill = fill_alert
-                            cell.font = font_dark_bold
+                    if cell.row > 1 and ws in (ws_comp, ws_qc):
+                        if val_str.startswith("FAILED"):
+                            cell.fill = fill_warning
+                            cell.font = font_warning
+                        elif cell.column in (27, 28):
+                            if val_str in ("CONCORDANT", "OK"):
+                                cell.fill = fill_green
+                                cell.font = font_white_bold
+                            elif val_str == "NEW_ASSIGNMENT":
+                                cell.fill = fill_green_tint
+                                cell.font = font_dark_bold
+                            elif val_str and val_str != "NO_MATCH":
+                                cell.fill = fill_alert
+                                cell.font = font_dark_bold
                     if len(val_str) > max_len:
                         max_len = len(val_str)
                 ws.column_dimensions[col_letter].width = min(max(max_len + 3, 10), 45)
