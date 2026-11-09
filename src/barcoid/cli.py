@@ -195,6 +195,15 @@ def main(args=None):
     """Entry point for the BarcoID CLI and Desktop GUI."""
     effective_args = sys.argv[1:] if args is None else list(args)
 
+    # Dismiss PyInstaller splash screen immediately if invoked as non-GUI CLI command
+    if len(effective_args) > 0 and "--gui" not in effective_args:
+        try:
+            import pyi_splash
+
+            pyi_splash.close()
+        except ImportError:
+            pass
+
     # If double-clicked or launched without arguments, open the Desktop GUI
     if len(effective_args) == 0:
         from barcoid.gui import launch_gui

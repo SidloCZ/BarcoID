@@ -4354,6 +4354,13 @@ def launch_gui():
     enable_high_dpi()
     root = tk.Tk()
     BarcoIDApp(root)
+    # Smoothly close PyInstaller splash screen once main window is ready
+    try:
+        import pyi_splash
+
+        pyi_splash.close()
+    except ImportError:
+        pass
     root.mainloop()
 
 
