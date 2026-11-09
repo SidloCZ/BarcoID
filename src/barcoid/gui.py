@@ -21,6 +21,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 import traceback
+import urllib.parse
 import webbrowser
 import zlib
 from datetime import datetime
@@ -67,6 +68,7 @@ SVG_ARROW_RIGHT_PATH = ASSETS_DIR / "arrow_right.svg"
 SVG_ARROW_LEFT_PATH = ASSETS_DIR / "arrow_left.svg"
 SVG_CHECK_CIRCLE_PATH = ASSETS_DIR / "check_circle.svg"
 SVG_HELP_PATH = ASSETS_DIR / "help.svg"
+SVG_BUG_PATH = ASSETS_DIR / "bug.svg"
 GUIDE_DIR = ASSETS_DIR / "guide_screenshots"
 
 RESULTS_COLUMNS = [
@@ -287,6 +289,63 @@ def render_help_photo(size: int, color_hex: str = "#444444") -> tk.PhotoImage:
                 buf[idx + 1] = fg[1]
                 buf[idx + 2] = fg[2]
                 buf[idx + 3] = int(final_alpha * 255 + 0.5)
+
+    return tk.PhotoImage(data=_rgba_to_png(size, size, buf))
+
+
+def render_bug_photo(size: int, color_hex: str = "#444444") -> tk.PhotoImage:
+    """
+    Renders an anti-aliased dark gray bug icon with full RGBA transparency.
+    """
+    fg = _hex_to_rgb(color_hex)
+    scale = size / 24.0
+    half_stroke = 1.15 * scale
+
+    segments = [
+        # Antennae
+        (8.0 * scale, 2.0 * scale, 9.9 * scale, 3.9 * scale),
+        (16.0 * scale, 2.0 * scale, 14.1 * scale, 3.9 * scale),
+        # Legs - top
+        (5.0 * scale, 7.0 * scale, 8.0 * scale, 9.0 * scale),
+        (19.0 * scale, 7.0 * scale, 16.0 * scale, 9.0 * scale),
+        # Legs - mid
+        (4.0 * scale, 13.0 * scale, 8.0 * scale, 13.0 * scale),
+        (20.0 * scale, 13.0 * scale, 16.0 * scale, 13.0 * scale),
+        # Legs - bottom
+        (5.0 * scale, 19.0 * scale, 8.0 * scale, 17.0 * scale),
+        (19.0 * scale, 19.0 * scale, 16.0 * scale, 17.0 * scale),
+        # Center suture
+        (12.0 * scale, 10.0 * scale, 12.0 * scale, 20.0 * scale),
+        # Collar line
+        (8.0 * scale, 10.0 * scale, 16.0 * scale, 10.0 * scale),
+    ]
+
+    rx = 4.0 * scale
+    body_cx = 12.0 * scale
+    top_cy = 10.0 * scale
+    bot_cy = 16.0 * scale
+
+    buf = bytearray(size * size * 4)
+    for y in range(size):
+        py = y + 0.5
+        for x in range(size):
+            px = x + 0.5
+
+            seg_dist = min(_dist_to_segment(px, py, *seg) for seg in segments)
+
+            clamped_y = max(top_cy, min(bot_cy, py))
+            dist_to_core = math.hypot(px - body_cx, py - clamped_y)
+            body_dist = abs(dist_to_core - rx)
+
+            min_dist = min(seg_dist, body_dist)
+            alpha = max(0.0, min(1.0, (half_stroke + 0.5) - min_dist))
+
+            if alpha > 0.0:
+                idx = (y * size + x) * 4
+                buf[idx] = fg[0]
+                buf[idx + 1] = fg[1]
+                buf[idx + 2] = fg[2]
+                buf[idx + 3] = int(alpha * 255 + 0.5)
 
     return tk.PhotoImage(data=_rgba_to_png(size, size, buf))
 
@@ -892,6 +951,7 @@ class BarcoIDApp:
         self.icon_check_unselected = render_checkbox_photo(False, radio_sz)
         self.icon_check_selected = render_checkbox_photo(True, radio_sz)
         self.icon_help = render_help_photo(help_sz, "#444444")
+        self.icon_bug = render_bug_photo(help_sz, "#444444")
         self.icon_check_done = render_check_circle_photo(
             badge_sz, PALETTE["primary_tint"], PALETTE["primary"], "#FFFFFF"
         )
@@ -1126,6 +1186,31 @@ class BarcoIDApp:
         self.author_tag.bind("<Button-1>", _open_author_github)
         self.author_tag.bind("<Enter>", _on_author_enter)
         self.author_tag.bind("<Leave>", _on_author_leave)
+
+        # Bug SVG Icon Button positioned immediately to the left of the '?' Help Button
+        self.bug_btn = tk.Button(
+            stepper_frame,
+            image=self.icon_bug,
+            command=self.open_terminal_window,
+            bg=PALETTE["card_inner"],
+            activebackground=PALETTE["primary_tint"],
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+            padx=4,
+            pady=4,
+        )
+        self.bug_btn.pack(side="left", padx=(0, 6))
+
+        def _on_bug_enter(_event=None):
+            self.bug_btn.configure(bg=PALETTE["primary_tint"])
+
+        def _on_bug_leave(_event=None):
+            self.bug_btn.configure(bg=PALETTE["card_inner"])
+
+        self.bug_btn.bind("<Enter>", _on_bug_enter)
+        self.bug_btn.bind("<Leave>", _on_bug_leave)
 
         # Dark Gray '?' SVG Help Button positioned immediately to the left of Step 1 button
         self.help_btn = tk.Button(
@@ -2564,7 +2649,9 @@ class BarcoIDApp:
 
         win = tk.Toplevel(self.root)
         win.title("BarcoID — Diagnostics & Bug Report (Ctrl+Shift+D)")
-        win.geometry("880x520")
+        win_w = max(940, int(940 * self.dpi_scale))
+        win_h = max(540, int(540 * self.dpi_scale))
+        win.geometry(f"{win_w}x{win_h}")
         win.configure(bg=PALETTE["card_inner"])
         self.terminal_win = win
 
@@ -2579,13 +2666,17 @@ class BarcoIDApp:
             bg=PALETTE["card_inner"],
         ).pack(side="left")
 
-        self._make_button(bar, "Save Bug Report", self.export_bug_report, primary=True).pack(
+        self._make_button(bar, "Report issue", self.report_github_issue, primary=True).pack(
             side="right"
+        )
+
+        self._make_button(bar, "Save Bug Report", self.export_bug_report, primary=False).pack(
+            side="right", padx=(0, 8)
         )
 
         self._make_button(
             bar, "Test APIs (BOLD / NCBI / GBIF)", self.run_api_test_async, primary=False
-        ).pack(side="right", padx=(0, 10))
+        ).pack(side="right", padx=(0, 8))
 
         txt = tk.Text(
             win,
@@ -2673,6 +2764,84 @@ class BarcoIDApp:
             self.ui_queue.put(("bug_report_ready", report_path))
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def report_github_issue(self):
+        """Pre-fills a new GitHub issue on SidloCZ/BarcoID with diagnostics and opens browser."""
+        fasta_str = self.fasta_var.get().strip()
+        seq_count = 0
+        if fasta_str and Path(fasta_str).exists():
+            try:
+                seq_count = len(FastaParser.read_sequences(Path(fasta_str)))
+            except Exception:
+                seq_count = -1
+
+        meta_str = self.metadata_var.get().strip()
+        morpho_col = self.morpho_col_var.get().strip()
+        sample_col = self.sample_col_var.get().strip()
+        taxon_filter = self.taxon_var.get().strip()
+
+        # Build issue title
+        if self.last_error_trace:
+            last_lines = [
+                ln.strip() for ln in self.last_error_trace.strip().splitlines() if ln.strip()
+            ]
+            err_title = last_lines[-1] if last_lines else "Unknown Exception"
+            if len(err_title) > 90:
+                err_title = err_title[:87] + "..."
+            title = f"[Bug]: {err_title}"
+        else:
+            title = f"[Bug]: Issue Report — v{__version__}"
+
+        # Tail of recent log history (last 30 entries) to prevent URL length limits
+        recent_logs = (
+            "\n".join(self.log_history[-30:]) if self.log_history else "<no log entries yet>"
+        )
+
+        traceback_block = (
+            self.last_error_trace.strip()
+            if self.last_error_trace
+            else "<no exception trace recorded>"
+        )
+
+        body = (
+            "### Problem Description\n"
+            "<!-- Please describe what happened, what you expected, and any steps to reproduce -->\n\n"
+            "### Environment & Diagnostics\n"
+            f"- **BarcoID Version:** v{__version__}\n"
+            f"- **OS / Platform:** {platform.platform()}\n"
+            f"- **Python Runtime:** {sys.version.split()[0]} (Frozen EXE: {getattr(sys, 'frozen', False)})\n"
+            f"- **Monitor DPI Scale:** {self.dpi_scale:.2f}x\n"
+            f"- **Input FASTA:** {Path(fasta_str).name if fasta_str else '<none>'} ({seq_count} sequences)\n"
+            f"- **Metadata File:** {Path(meta_str).name if meta_str else '<none>'}\n"
+            f"- **Morphospecies Col:** {morpho_col}\n"
+            f"- **Sample ID Col:** {sample_col}\n"
+            f"- **Target Taxon:** {taxon_filter}\n"
+            f"- **Pipeline Running:** {self.is_running}\n\n"
+            "### Error Traceback\n"
+            "```text\n"
+            f"{traceback_block}\n"
+            "```\n\n"
+            "### Recent Execution Logs\n"
+            "```text\n"
+            f"{recent_logs}\n"
+            "```\n\n"
+            "---\n"
+            "*(The full unabridged diagnostic report has also been copied to your clipboard)*\n"
+        )
+
+        full_report = self.build_diagnostic_report_text(include_api_ping=False)
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(full_report)
+        except Exception:
+            pass
+
+        query_params = urllib.parse.urlencode({"title": title, "body": body})
+        issue_url = f"https://github.com/SidloCZ/BarcoID/issues/new?{query_params}"
+        webbrowser.open_new_tab(issue_url)
+        logging.info(
+            "Opened GitHub issues in browser. Complete diagnostic report copied to clipboard."
+        )
 
     # ------------------------------------------------------------------
     # File Browsers & Interactive Metadata Table Loading

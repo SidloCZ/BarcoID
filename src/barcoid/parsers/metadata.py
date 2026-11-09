@@ -6,7 +6,7 @@ import csv
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from openpyxl import load_workbook
 
@@ -36,21 +36,48 @@ class MetadataParser:
 
     def __init__(
         self,
-        metadata_path: Path,
+        metadata_path: Optional[Union[str, Path]] = None,
         sample_col: str = "sample_id",
         morpho_col: str = "field_morphospecies",
         genus_col: Optional[str] = "field_genus",
         custom_prefix_map: Optional[Dict[str, str]] = None,
+        **kwargs,
     ):
-        self.metadata_path = Path(metadata_path)
-        self.sample_col = sample_col.strip()
-        self.morpho_col = morpho_col.strip()
+        # Support aliases for column name parameters
+        if "sample_id_col" in kwargs:
+            sample_col = kwargs.pop("sample_id_col")
+        if "morphospecies_col" in kwargs:
+            morpho_col = kwargs.pop("morphospecies_col")
+
+        self.metadata_path = Path(metadata_path) if metadata_path else None
+        self.sample_col = sample_col.strip() if sample_col else "sample_id"
+        self.morpho_col = morpho_col.strip() if morpho_col else "field_morphospecies"
         self.genus_col = genus_col.strip() if genus_col else None
         self.prefix_map = dict(DEFAULT_GENUS_PREFIXES)
         if custom_prefix_map:
             self.prefix_map.update({k.upper(): v for k, v in custom_prefix_map.items()})
         self.records: Dict[str, Dict[str, Any]] = {}
+        self._lower_records: Dict[str, Dict[str, Any]] = {}
+        if self.metadata_path:
+            self._load()
+
+    def load(
+        self,
+        metadata_path: Optional[Union[str, Path]] = None,
+        sample_col: Optional[str] = None,
+        morpho_col: Optional[str] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Loads (or reloads) metadata from file and indexes records by sample ID."""
+        if metadata_path:
+            self.metadata_path = Path(metadata_path)
+        if sample_col:
+            self.sample_col = sample_col.strip()
+        if morpho_col:
+            self.morpho_col = morpho_col.strip()
+        if not self.metadata_path:
+            raise ValueError("No metadata_path provided to load().")
         self._load()
+        return self.records
 
     @staticmethod
     def _read_tabular_rows(
@@ -234,31 +261,58 @@ class MetadataParser:
         return ""
 
     def _load(self):
+        if not self.metadata_path or not self.metadata_path.exists():
+            return
         _, rows = self._read_tabular_rows(self.metadata_path)
+        self.records.clear()
+        self._lower_records.clear()
         for row in rows:
             sample_id = row.get(self.sample_col)
             if sample_id:
-                clean_id = sample_id.strip()
-                morpho_val = row.get(self.morpho_col, "").strip()
+                clean_id = str(sample_id).strip()
+                morpho_val = str(row.get(self.morpho_col, "") or "").strip()
                 explicit_genus = (
-                    row.get(self.genus_col, "").strip()
+                    str(row.get(self.genus_col, "") or "").strip()
                     if self.genus_col and self.genus_col in row
                     else ""
                 )
                 inferred_genus = explicit_genus or self.infer_genus_from_morpho(morpho_val)
-                self.records[clean_id] = {
+                rec = {
                     "field_morpho_code": morpho_val,
                     "field_inferred_genus": inferred_genus,
                     "raw_row": row,
                 }
+                self.records[clean_id] = rec
+                self._lower_records[clean_id.lower()] = rec
 
         logger.info(f"Loaded {len(self.records)} metadata record(s) from {self.metadata_path.name}")
 
-    def get_metadata(self, sample_id: str) -> Optional[Dict[str, Any]]:
+    def get_metadata(self, sample_id: Optional[str]) -> Optional[Dict[str, Any]]:
         """Retrieves external metadata dictionary for a given sample/voucher ID."""
-        clean = sample_id.strip()
+        if not sample_id:
+            return None
+        clean = str(sample_id).strip()
+        if not clean:
+            return None
         if clean in self.records:
             return self.records[clean]
-        # Also allow matching against base sample token if header has extra suffix
-        base_token = clean.split("_")[0]
-        return self.records.get(base_token)
+
+        low = clean.lower()
+        if low in self._lower_records:
+            return self._lower_records[low]
+
+        # Progressive prefix matching from right to left (e.g. SPEC_001 from SPEC_001_PlateA)
+        parts = clean.split("_")
+        for i in range(len(parts) - 1, 0, -1):
+            cand = "_".join(parts[:i])
+            if cand in self.records:
+                return self.records[cand]
+            if cand.lower() in self._lower_records:
+                return self._lower_records[cand.lower()]
+
+        # Reverse check: if metadata key is a prefix of clean or clean is a prefix of metadata key
+        for k, v in self.records.items():
+            if k and (clean.startswith(f"{k}_") or k.startswith(f"{clean}_")):
+                return v
+
+        return None

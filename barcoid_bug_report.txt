@@ -1,0 +1,40 @@
+======================================================================
+BarcoID Diagnostic & Bug Report — v0.3.0
+Generated: 2026-11-09T16:12:31
+======================================================================
+OS / Platform:      Windows-11-10.0.26300-SP0
+Python Runtime:     3.12.13 (Frozen EXE: True)
+Monitor DPI Scale:  1.25x
+Input FASTA:        E:\1Coding\Antigravity IDE Projects\BerlinBarcoding\Recovery_and_Decontamination_Outputs\recovered_consensus_barcodes\combined_results\Filtered_barcodes_1percamb_upto5err.fa (Sequences detected: 115)
+Metadata File:      E:\1Coding\Antigravity IDE Projects\BerlinBarcoding\Recovery_and_Decontamination_Outputs\all_barcodes_identification\all_barcodes_multi_source_identification.xlsx
+Morphospecies Col:  Field_Morpho_Code
+Sample ID Col:      Sample_ID
+Output Directory:   E:\1Coding\Antigravity IDE Projects\BerlinBarcoding\Recovery_and_Decontamination_Outputs\recovered_consensus_barcodes\combined_results\results
+Target Taxon:       Formicidae
+Pipeline Running:   False
+
+--- Live API Connectivity Check ---
+[OK] BOLD Systems v5: HTTP 200 (871 ms) -> https://id.boldsystems.org/
+[OK] NCBI GenBank QBLAST: HTTP 200 (639 ms) -> https://blast.ncbi.nlm.nih.gov/Blast.cgi?CMD=Info
+[OK] GBIF Backbone API: HTTP 200 (151 ms) -> https://api.gbif.org/v1/species/match?name=Formica
+
+--- Last Exception Traceback ---
+Traceback (most recent call last):
+  File "barcoid\gui.py", line 2918, in _run_pipeline_worker
+  File "barcoid\pipeline.py", line 93, in run
+TypeError: MetadataParser.__init__() got an unexpected keyword argument 'sample_id_col'
+
+
+--- Execution Log History ---
+16:12:04 [INFO] Loaded 115 sequence(s) from Filtered_barcodes_1percamb_upto5err.fa
+16:12:04 [INFO] Loaded 115 sequence(s) from Filtered_barcodes_1percamb_upto5err.fa
+16:12:04 [ERROR] Pipeline execution error: MetadataParser.__init__() got an unexpected keyword argument 'sample_id_col'
+16:12:13 [INFO] Loaded 115 sequence(s) from Filtered_barcodes_1percamb_upto5err.fa
+16:12:13 [INFO] Loaded 115 sequence(s) from Filtered_barcodes_1percamb_upto5err.fa
+16:12:13 [ERROR] Pipeline execution error: MetadataParser.__init__() got an unexpected keyword argument 'sample_id_col'
+16:12:28 [INFO] Testing live connectivity to BOLD Systems v5, NCBI QBLAST, and GBIF Backbone...
+16:12:30 [INFO] [OK] BOLD Systems v5: HTTP 200 (910 ms) -> https://id.boldsystems.org/
+16:12:30 [INFO] [OK] NCBI GenBank QBLAST: HTTP 200 (647 ms) -> https://blast.ncbi.nlm.nih.gov/Blast.cgi?CMD=Info
+16:12:30 [INFO] [OK] GBIF Backbone API: HTTP 200 (163 ms) -> https://api.gbif.org/v1/species/match?name=Formica
+16:12:31 [INFO] Generating diagnostic bug report...
+16:12:31 [INFO] Loaded 115 sequence(s) from Filtered_barcodes_1percamb_upto5err.fa

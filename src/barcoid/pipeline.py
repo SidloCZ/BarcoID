@@ -90,10 +90,13 @@ class BarcoIDPipeline:
         # 2. Parse optional metadata sheet
         meta_parser = None
         if metadata_path and Path(metadata_path).exists():
-            meta_parser = MetadataParser(sample_id_col=sample_col, morphospecies_col=morpho_col)
-            meta_records = meta_parser.load(metadata_path)
+            meta_parser = MetadataParser(
+                metadata_path=Path(metadata_path),
+                sample_col=sample_col,
+                morpho_col=morpho_col,
+            )
             logger.info(
-                f"Loaded {len(meta_records)} metadata record(s) from {Path(metadata_path).name}"
+                f"Loaded {len(meta_parser.records)} metadata record(s) from {Path(metadata_path).name}"
             )
 
         # Pre-parse headers & metadata so morphological priors are ready immediately
@@ -104,8 +107,8 @@ class BarcoIDPipeline:
             p_meta.update(self.ont_parser.parse_stats(hdr))
             if meta_parser:
                 ext_meta = (
-                    meta_parser.get_metadata(p_meta["sample_id"])
-                    or meta_parser.get_metadata(p_meta["clean_id"])
+                    meta_parser.get_metadata(p_meta.get("sample_id", ""))
+                    or meta_parser.get_metadata(p_meta.get("clean_id", ""))
                     or meta_parser.get_metadata(p_meta.get("voucher_code", ""))
                 )
                 if ext_meta:

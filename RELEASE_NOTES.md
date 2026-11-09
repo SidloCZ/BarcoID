@@ -1,5 +1,32 @@
 # BarcoID Release Notes
 
+## Version 0.3.1
+
+**Bug SVG Navigation, One-Click GitHub Issue Reporting & Metadata Parser Resilience**
+
+---
+
+### What's New & Key Highlights in Version 0.3.1
+
+- **Bug SVG Icon & Quick Diagnostics Access:**
+  - Added a clean, minimalist, anti-aliased SVG bug icon button in the top navigation header positioned directly to the left of the `?` help button.
+  - Clicking the bug icon immediately opens (or brings to the front) the Diagnostic Terminal & Bug Report window (`Ctrl+Shift+D`).
+  - Implemented anti-aliased pure-Python RGBA vector rasterization with true transparency for crisp rendering across all display DPI scales.
+
+- **One-Click "Report issue" Button for GitHub:**
+  - Added a dedicated "Report issue" button in the diagnostics window header.
+  - Automatically compiles complete diagnostic information including BarcoID version, OS/platform details, Python runtime, active dataset parameters, full exception traceback, and recent execution logs.
+  - Copies the complete, unabridged diagnostic report text to the system clipboard for effortless reference.
+  - Launches the default browser to `https://github.com/SidloCZ/BarcoID/issues/new` with pre-filled title and structured GitHub Markdown issue body.
+
+- **Metadata Parser Resilience & Keyword Argument Compatibility:**
+  - Resolved `TypeError: MetadataParser.__init__() got an unexpected keyword argument 'sample_id_col'` reported during runs with custom external metadata files.
+  - Added full backward-compatible keyword aliases (`sample_id_col`, `morphospecies_col`) in `MetadataParser.__init__`.
+  - Added public `MetadataParser.load(metadata_path)` method for two-phase instantiation.
+  - Upgraded sample ID matching with progressive prefix token matching and case-insensitive resolution, ensuring external metadata rows reliably link to specimen FASTA deflines regardless of suffix formatting.
+
+---
+
 ## Version 0.3.0
 
 **Progressive Results Chunking, Resilient Multi-Thread Caching, Dynamic ETA & Window Close Protection**
